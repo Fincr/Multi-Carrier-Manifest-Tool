@@ -16,8 +16,8 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.0.0"
-__author__ = "Fin Crawley"
+__version__ = "1.1.0"
+__author__ = "Finlay Crawley"
 
 import sys
 import os
@@ -1436,6 +1436,7 @@ class ManifestToolApp:
             'Mail_America_Africa_2025.xlsx': 'Mail Americas',
             'PostNord.xlsx': 'PostNord',
             'UploadCodeList_-_Citipost.xls': 'Landmark Global',
+            'United_Business.xlsx': 'United Business ADS',
         }
         
         templates = [f for f in os.listdir(self.template_dir) if f.endswith(('.xlsx', '.xls'))]
@@ -1504,7 +1505,7 @@ class ManifestToolApp:
         # Create about dialog
         about_dialog = tk.Toplevel(self.root)
         about_dialog.title("About")
-        about_dialog.geometry("550x450")
+        about_dialog.geometry("550x550")
         about_dialog.resizable(False, False)
         about_dialog.transient(self.root)
         about_dialog.grab_set()
@@ -1576,7 +1577,10 @@ Features:
    Template: Air_Business_Ireland.xlsx
 
 • Mail Americas/Africa
-   Template: Mail_America_Africa_2025.xlsx"""
+   Template: Mail_America_Africa_2025.xlsx
+
+• United Business ADS
+   Template: United_Business.xlsx"""
         
         carriers_label = ttk.Label(carriers_tab, text=carriers_text, justify='left')
         carriers_label.pack(anchor='w')

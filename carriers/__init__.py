@@ -10,6 +10,7 @@ from .airbusiness import AirBusinessCarrier
 from .mail_americas import MailAmericasCarrier
 from .landmark import LandmarkCarrier
 from .deutschepost import DeutschePostCarrier
+from .unitedbusiness import UnitedBusinessCarrier
 
 # Registry of available carriers
 CARRIER_REGISTRY = {
@@ -21,6 +22,7 @@ CARRIER_REGISTRY = {
     'Mail Americas': MailAmericasCarrier,
     'Landmark Global': LandmarkCarrier,
     'Deutsche Post': DeutschePostCarrier,
+    'United Business ADS': UnitedBusinessCarrier,
 }
 
 
@@ -64,6 +66,10 @@ def get_carrier(carrier_name: str) -> BaseCarrier:
     # Check for Deutsche Post
     if 'deutsche' in carrier_lower or 'deutschepost' in carrier_lower:
         return CARRIER_REGISTRY['Deutsche Post']()
+    
+    # Check for United Business
+    if 'united business' in carrier_lower or 'ubl' in carrier_lower:
+        return CARRIER_REGISTRY['United Business ADS']()
     
     raise ValueError(f"Unknown carrier: {carrier_name}. Available: {list(CARRIER_REGISTRY.keys())}")
 

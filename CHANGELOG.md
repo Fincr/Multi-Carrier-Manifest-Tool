@@ -5,6 +5,19 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-12-31
+
+### Added
+- **United Business ADS Carrier Support**
+  - Single service type: Untracked Economy Mail
+  - Weight-band based row selection for China (5 bands), Russia (2), Ukraine (2)
+  - Format columns: Letters, Flats, Packets
+  - Country name mapping for manifest typos (Afganistan, Azerbajan, Kyrgystan)
+  - Template: `United_Business.xlsx`
+
+### Fixed
+- Batch launcher pointing to incorrect project directory
+
 ## [1.0.0] - 2024-12-30
 
 ### Added

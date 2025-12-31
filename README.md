@@ -2,8 +2,8 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.0.0  
-**Author:** Fin Crawley
+**Version:** 1.1.0  
+**Author:** Finlay Crawley
 
 ## Supported Carriers
 
@@ -17,6 +17,7 @@ Automated population of carrier manifests from internal carrier sheets, with int
 | Deutsche Post | *(uses carrier sheet directly)* | Form-based portal submission | ✅ Auto-registration |
 | Air Business | `Air_Business_Ireland.xlsx` | Fixed rows (Ireland only) | ❌ |
 | Mail Americas/Africa | `Mail_America_Africa_2025.xlsx` | Weight-break based (3 sheets) | ❌ |
+| United Business ADS | `United_Business.xlsx` | Weight-band based (single sheet) | ❌ |
 
 ## Features
 
@@ -159,6 +160,13 @@ Data starts at row 9 with headers at row 8:
 - **Sheets**: Mail Africa 2025, Mail Americas 2025, Europe & ROW 2025
 - **Europe & ROW**: Uses format columns instead of weight breaks
 
+### United Business ADS
+- **Structure**: Single sheet with weight-band rows for select countries
+- **Service**: Untracked Economy Mail only (all records → Economy)
+- **Formats**: Letters, Flats, Packets (columns C-H)
+- **Weight Bands**: China (5 bands), Russia (2), Ukraine (2) - uses average item weight
+- **Coverage**: Eastern Europe and Asia regions
+
 ## Adding New Carriers
 
 1. Create new module in `carriers/` (use existing carrier as template)
@@ -222,7 +230,8 @@ Multi Carrier Manifest Automation/
 │   ├── deutschepost.py      # Deutsche Post handler
 │   ├── deutschepost_portal.py  # Deutsche Post portal automation
 │   ├── airbusiness.py       # Air Business Ireland handler
-│   └── mail_americas.py     # Mail Americas/Africa handler
+│   ├── mail_americas.py     # Mail Americas/Africa handler
+│   └── unitedbusiness.py    # United Business ADS handler
 ├── core/
 │   ├── __init__.py
 │   ├── engine.py            # Processing engine
@@ -234,6 +243,7 @@ Multi Carrier Manifest Automation/
 │   ├── MailOrderTemplate.xlsx
 │   ├── Air_Business_Ireland.xlsx
 │   ├── Mail_America_Africa_2025.xlsx
+│   ├── United_Business.xlsx
 │   └── UploadCodeList_-_Citipost.xls
 ├── tools/
 │   ├── SumatraPDF.exe       # PDF printer (download separately)
