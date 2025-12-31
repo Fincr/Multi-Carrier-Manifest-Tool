@@ -1054,7 +1054,7 @@ class SettingsDialog:
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Settings")
-        self.dialog.geometry("500x400")
+        self.dialog.geometry("500x450")
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -1062,7 +1062,7 @@ class SettingsDialog:
         # Center on parent
         self.dialog.update_idletasks()
         x = parent.winfo_x() + (parent.winfo_width() // 2) - (500 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (400 // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (450 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
         self._create_widgets()
