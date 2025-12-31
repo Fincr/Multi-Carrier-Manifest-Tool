@@ -302,11 +302,6 @@ async def _upload_to_deutschepost_portal_impl(
                 
                 await page.wait_for_timeout(1000)
                 
-                # Take screenshot to verify form is filled
-                screenshot_path = os.path.join(output_dir, "dp_debug_form_filled.png")
-                await page.screenshot(path=screenshot_path)
-                log(f"    Form screenshot saved")
-                
                 # Check for validation errors before clicking Create
                 page_content = await page.content()
                 if "please enter a customer reference" in page_content.lower():
