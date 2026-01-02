@@ -50,7 +50,7 @@ class AsendiaCarrier(BaseCarrier):
             'Sao Tome and Principe': 'Sao Tome And Principe',
             'Trinidad and Tobago': 'Trinidad And Tobago',
             'Turks and Caicos Islands': 'Turks And Caicos Islands',
-            'Czech Republic': 'Czechia',
+            'Czechia': 'Czech Republic',
             'Côte d\'Ivoire': 'Cote d\'Ivoire',
             'Cote d\'Ivoire': 'Cote d\'Ivoire',
             'Ivory Coast': 'Cote d\'Ivoire',

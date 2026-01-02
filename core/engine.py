@@ -483,6 +483,22 @@ class ManifestEngine:
         self.log(f"PO: {po_number}")
         self.log(f"Records: {len(data)}")
         
+        # Check for zero records - cancel processing if carrier sheet is empty
+        if len(data) == 0:
+            self.log("")
+            self.log("⚠ ZERO RECORDS DETECTED")
+            self.log("The carrier sheet contains no data rows.")
+            self.log("Processing cancelled.")
+            return [ProcessingResult(
+                carrier_name=carrier_name,
+                output_file="",
+                records_processed=0,
+                records_failed=0,
+                errors=["Carrier sheet contains zero records - processing cancelled"],
+                success=False,
+                po_number=po_number
+            )]
+        
         # Check for Deutsche Post - requires special handling
         carrier_lower = carrier_name.lower().strip()
         if 'deutsche' in carrier_lower:
