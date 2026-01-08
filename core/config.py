@@ -26,7 +26,8 @@ class AppConfig:
     
     # Portal settings
     portal_timeout_ms: int = 30000  # 30 seconds
-    portal_retry_count: int = 1
+    portal_retry_count: int = 2  # Full workflow retries
+    portal_stage_retry_count: int = 2  # Per-stage retries for resilience
     
     # Print settings
     pdf_close_delay_seconds: int = 7

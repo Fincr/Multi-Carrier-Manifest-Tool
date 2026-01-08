@@ -5,6 +5,38 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-01-08
+
+### Added
+- **Robust Spring Portal Automation** (`carriers/spring_portal.py`)
+  - Comprehensive error handling for unreliable portal behaviour
+  - Per-stage retry logic with configurable retry counts
+  - Multiple wait strategies for post-login hangs
+  - Graceful degradation when PDF download fails (upload still succeeds)
+  - Detailed stage-based error reporting
+  - Debug screenshots on failures
+
+### Changed
+- Spring portal now uses new robust automation module instead of inline implementation
+- Increased default retry count from 1 to 2 for better reliability
+- Added `portal_stage_retry_count` config option (default: 2) for per-stage retries
+
+### Fixed
+- Post-login hang: Multiple wait strategies instead of single networkidle wait
+- "Upload Multiple Orders" button not found: Extended selector fallbacks and page refresh retry
+- "Unexpected error" after CSV upload: Portal error detection with retry logic
+- "Unexpected error" when clicking Print: Dismisses error modal, refreshes page, re-selects order, and retries
+- Added 4-second delays before Print and after CSV upload to reduce "unexpected error" occurrences (portal dislikes fast progression)
+
+### Technical Details
+- New `SpringPortalStage` enum tracks workflow stages (LOGIN, FIND_UPLOAD, UPLOAD_FILE, etc.)
+- New `SpringPortalResult` dataclass provides detailed status including partial success states
+- New `SpringPortalConfig` dataclass consolidates portal configuration
+- Modular stage functions (`_stage_login`, `_stage_upload_file`, etc.) with individual retry logic
+- `_wait_for_page_stable()` helper for more reliable page load detection
+- `_safe_click()` helper with multiple selector fallbacks
+- `_check_for_portal_error()` helper to detect portal error states
+
 ## [1.1.1] - 2026-01-02
 
 ### Added

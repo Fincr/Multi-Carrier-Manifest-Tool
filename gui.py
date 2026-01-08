@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -285,263 +285,18 @@ def print_excel_workbook(filepath: str, printer_name: str = None) -> tuple[bool,
             pass
 
 
-async def _upload_to_spring_portal_impl(file_path: str, po_number: str = "", output_dir: str = "", auto_print: bool = True, log_callback=None) -> tuple[bool, str, bool]:
-    """
-    Internal implementation of Spring portal upload.
-    Called by upload_to_spring_portal with retry logic.
-    
-    Returns:
-        (success: bool, message: str, pdf_downloaded: bool)
-        pdf_downloaded indicates whether the manifest PDF was successfully downloaded/printed
-    """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        return False, "Playwright not installed. Run: pip install playwright && playwright install chromium"
-    
-    # Load credentials from environment/.env
-    creds = get_spring_credentials()
-    if not creds.is_valid():
-        return False, "Spring credentials not configured. Set SPRING_EMAIL and SPRING_PASSWORD in .env file.", False
-    
-    EMAIL = creds.email
-    PASSWORD = creds.password
-    LOGIN_URL = "https://my.spring-gds.com/"
-    
-    def log(msg):
-        if log_callback:
-            log_callback(msg)
-    
-    try:
-        async with async_playwright() as p:
-            # Launch browser
-            log("  Launching browser...")
-            browser = await p.chromium.launch(headless=False)
-            context = await browser.new_context()
-            page = await context.new_page()
-            
-            try:
-                # Navigate to login page
-                log("  Navigating to Spring portal...")
-                await page.goto(LOGIN_URL, wait_until="networkidle", timeout=get_portal_timeout_ms())
-                
-                # Enter email
-                log("  Entering credentials...")
-                await page.wait_for_selector('input[type="email"], input[name="email"], input[placeholder*="mail"], input[id*="email"]', timeout=get_portal_timeout_ms())
-                await page.fill('input[type="email"], input[name="email"], input[placeholder*="mail"], input[id*="email"]', EMAIL)
-                
-                # Click Next button
-                await page.click('button:has-text("Next")')
-                await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
-                
-                # Wait for password field and enter password
-                log("  Authenticating...")
-                await page.wait_for_selector('input[type="password"]', timeout=get_portal_timeout_ms())
-                await page.fill('input[type="password"]', PASSWORD)
-                
-                # Click Sign in button
-                await page.click('button:has-text("Sign in")')
-                await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
-                
-                log("  Logged in successfully")
-                
-                # Wait for dashboard to load
-                await page.wait_for_timeout(3000)
-                
-                # Click Upload Multiple Orders - try multiple selectors
-                log("  Navigating to Upload Multiple Orders...")
-                
-                # Try various possible selectors
-                upload_selectors = [
-                    'text="Upload Multiple Orders"',
-                    'text="Upload multiple orders"',
-                    'text="Upload Orders"',
-                    'text="Bulk Upload"',
-                    'text="Import Orders"',
-                    'a:has-text("Upload")',
-                    'button:has-text("Upload")',
-                    '[href*="upload"]',
-                    '[href*="Upload"]',
-                    '[href*="multiple"]',
-                ]
-                
-                clicked = False
-                for selector in upload_selectors:
-                    try:
-                        element = page.locator(selector).first
-                        if await element.is_visible(timeout=2000):
-                            await element.click()
-                            clicked = True
-                            log(f"    Found button with: {selector}")
-                            break
-                    except:
-                        continue
-                
-                if not clicked:
-                    # Take screenshot for debugging
-                    screenshot_path = os.path.join(os.path.dirname(file_path), "spring_debug.png")
-                    await page.screenshot(path=screenshot_path)
-                    log(f"  ⚠ Could not find upload button. Screenshot saved: {screenshot_path}")
-                    log("  Please check the screenshot and report the exact button text.")
-                    await page.wait_for_timeout(30000)  # Keep open for manual inspection
-                    return False, "Could not find Upload button. Check spring_debug.png"
-                
-                await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
-                await page.wait_for_timeout(2000)
-                
-                # Upload file
-                log("  Uploading file...")
-                file_input = page.locator('input[type="file"]').first
-                await file_input.set_input_files(file_path)
-                
-                # Wait for validation
-                log("  Waiting for validation...")
-                await page.wait_for_timeout(5000)
-                
-                # Wait for validation to complete
-                await page.wait_for_timeout(3000)
-                
-                # Check for validation errors
-                page_content = await page.content()
-                if "error" in page_content.lower() and "validation" in page_content.lower():
-                    await browser.close()
-                    return False, "Validation error detected. Please check the manifest format."
-                
-                # Click "View uploaded orders" button
-                log("  Clicking 'View uploaded orders'...")
-                try:
-                    view_orders_btn = page.locator('button:has-text("View uploaded orders"), a:has-text("View uploaded orders")').first
-                    await view_orders_btn.click(timeout=get_portal_timeout_ms())
-                    await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
-                    await page.wait_for_timeout(2000)
-                except Exception as e:
-                    log(f"  ⚠ Could not click 'View uploaded orders': {e}")
-                    await browser.close()
-                    return True, "Upload completed but could not navigate to orders view"
-                
-                # Find and select the row with matching PO number
-                if po_number:
-                    log(f"  Looking for order with Customer ref: {po_number}")
-                    try:
-                        # Find the row containing the PO number in Customer ref column
-                        # The table structure shows Customer ref is in the last column area
-                        row_selector = f'tr:has-text("{po_number}"), [role="row"]:has-text("{po_number}")'
-                        target_row = page.locator(row_selector).first
-                        
-                        if await target_row.is_visible(timeout=get_portal_timeout_ms() // 3):
-                            # Find and click the checkbox in this row
-                            checkbox = target_row.locator('input[type="checkbox"], [role="checkbox"]').first
-                            if await checkbox.is_visible(timeout=get_portal_timeout_ms() // 6):
-                                await checkbox.click()
-                                log(f"  ✓ Selected order {po_number}")
-                                await page.wait_for_timeout(1000)
-                                
-                                # Set up download handler before clicking Print
-                                # Save PDF to output_dir if specified, otherwise same dir as upload file
-                                download_dir = output_dir if output_dir else os.path.dirname(file_path)
-                                
-                                # Click Print button
-                                log("  Clicking 'Print'...")
-                                async with page.expect_download(timeout=get_portal_timeout_ms()) as download_info:
-                                    print_btn = page.locator('button:has-text("Print")').first
-                                    await print_btn.click()
-                                
-                                download = await download_info.value
-                                
-                                # Save the downloaded file with consistent naming convention
-                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                downloaded_filename = f"Spring_{po_number}_{timestamp}.pdf"
-                                downloaded_path = os.path.join(download_dir, downloaded_filename)
-                                await download.save_as(downloaded_path)
-                                log(f"  ✓ Downloaded: {downloaded_filename}")
-                                
-                                await browser.close()
-                                
-                                # Print the downloaded PDF if auto_print enabled
-                                if auto_print:
-                                    log("  Printing downloaded manifest...")
-                                    print_success, print_msg = print_pdf_file(downloaded_path)
-                                    if print_success:
-                                        log(f"  ✓ {print_msg}")
-                                        return True, f"Upload, download and print completed successfully", True
-                                    else:
-                                        log(f"  ⚠ {print_msg}")
-                                        return True, f"Upload and download completed. Print failed: {print_msg}", True
-                                else:
-                                    return True, f"Upload and download completed successfully", True
-                            else:
-                                log("  ⚠ Could not find checkbox for the order row")
-                        else:
-                            log(f"  ⚠ Could not find row with Customer ref: {po_number}")
-                    except Exception as e:
-                        log(f"  ⚠ Error selecting order: {e}")
-                
-                await browser.close()
-                return True, "Upload completed successfully", False
-                
-            except Exception as e:
-                # Try to close browser on error
-                try:
-                    await browser.close()
-                except:
-                    pass
-                raise e
-                
-    except Exception as e:
-        return False, f"Upload failed: {str(e)}", False
-
-
-async def upload_to_spring_portal(file_path: str, po_number: str = "", output_dir: str = "", auto_print: bool = True, log_callback=None) -> tuple[bool, str, bool]:
-    """
-    Upload a manifest file to the Spring portal using Playwright.
-    After upload, finds the order by PO number, selects it, prints and downloads the manifest.
-    
-    Includes automatic retry on timeout errors.
-    
-    Args:
-        file_path: Path to the upload file (Excel)
-        po_number: PO/Customer ref to find after upload (for printing)
-        output_dir: Directory to save the downloaded PDF manifest
-        auto_print: Whether to print the downloaded PDF
-        log_callback: Optional callback for logging messages
-        
-    Returns:
-        (success: bool, message: str, pdf_downloaded: bool)
-        pdf_downloaded indicates whether the manifest PDF was successfully downloaded/printed
-    """
-    def log(msg):
-        if log_callback:
-            log_callback(msg)
-    
-    last_error = None
-    
-    for attempt in range(get_portal_retry_count() + 1):
-        if attempt > 0:
-            log(f"\n  ⟳ Retry attempt {attempt} of {get_portal_retry_count()}...")
-        
-        success, message, pdf_downloaded = await _upload_to_spring_portal_impl(
-            file_path, po_number, output_dir, auto_print, log_callback
-        )
-        
-        if success:
-            return success, message, pdf_downloaded
-        
-        # Check if this is a timeout error worth retrying
-        last_error = message
-        if "Timeout" in message or "timeout" in message:
-            if attempt < get_portal_retry_count():
-                log(f"  ⚠ Timeout occurred, will retry...")
-                continue
-        else:
-            # Non-timeout error, don't retry
-            break
-    
-    return False, last_error or "Upload failed after retries", False
-
-
 def run_spring_upload(file_path: str, po_number: str = "", output_dir: str = "", auto_print: bool = True, log_callback=None) -> tuple[bool, str, bool]:
     """
-    Synchronous wrapper for the async upload function.
+    Synchronous wrapper for the robust Spring portal upload.
+    
+    Uses the new robust portal automation with comprehensive error handling,
+    per-stage retry logic, and graceful degradation for unreliable portal behaviour.
+    
+    Known portal issues handled:
+    - Post-login hang (page doesn't fully load after authentication)
+    - "Upload Multiple Orders" button not found (dynamic UI loading)
+    - "Unexpected error" after CSV upload
+    - "Unexpected error" when downloading PDF manifest
     
     Args:
         file_path: Path to the upload file (Excel)
@@ -555,13 +310,11 @@ def run_spring_upload(file_path: str, po_number: str = "", output_dir: str = "",
         pdf_downloaded indicates whether the manifest PDF was successfully downloaded/printed
     """
     try:
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(upload_to_spring_portal(file_path, po_number, output_dir, auto_print, log_callback))
-        finally:
-            loop.close()
+        from carriers.spring_portal import run_spring_upload_robust
+        return run_spring_upload_robust(file_path, po_number, output_dir, auto_print, log_callback)
+    except ImportError as e:
+        # Fallback error if module not found
+        return False, f"Spring portal module not found: {str(e)}", False
     except Exception as e:
         return False, f"Upload error: {str(e)}", False
 
