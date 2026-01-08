@@ -272,7 +272,10 @@ class ManifestEngine:
         output_path = os.path.join(self.output_dir, output_filename)
         
         # Write order lines to manifest
-        self.log(f"Generated {len(carrier.get_order_lines())} order lines")
+        order_lines = carrier.get_order_lines()
+        priority_count = len([l for l in order_lines if l.product_code == '1MI'])
+        economy_count = len([l for l in order_lines if l.product_code == '2MI'])
+        self.log(f"Generated {len(order_lines)} order lines (Priority: {priority_count}, Economy: {economy_count})")
         carrier.write_manifest(template_path, output_path)
         self.log(f"Saved upload file: {output_filename}")
         
@@ -360,6 +363,8 @@ class ManifestEngine:
         # Write upload files to output directory
         files_created = carrier.write_upload_files(self.output_dir)
         
+        self.log(f"Files created: {len(files_created)}")
+        
         if files_created:
             for filepath in files_created:
                 self.log(f"Saved: {os.path.basename(filepath)}")
@@ -367,6 +372,12 @@ class ManifestEngine:
             # Primary file is the first one, additional files stored separately
             primary_file = files_created[0]
             additional_files = files_created[1:] if len(files_created) > 1 else []
+            
+            self.log(f"Primary file: {os.path.basename(primary_file)}")
+            if additional_files:
+                self.log(f"Additional files: {[os.path.basename(f) for f in additional_files]}")
+            else:
+                self.log("No additional files (single service type only)")
             
             return ProcessingResult(
                 carrier_name="Landmark Global",

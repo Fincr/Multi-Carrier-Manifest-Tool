@@ -5,6 +5,35 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-01-08
+
+### Fixed
+- **Spring portal: "View uploaded orders" fallback** - If button not found after upload, now automatically falls back to "Order confirmation" menu
+- **Spring portal: Smart retry logic** - On retry after VIEW_ORDERS failure, skips re-upload and goes directly to Order confirmation page to select already-uploaded orders
+- **PDF printing now single-sided** - SumatraPDF is now tried first with `-print-settings simplex` to force single-sided printing
+- **Max 2 orders selected** - Caps order selection to 2 (one Standard, one Premium) to avoid selecting old orders with same PO
+
+### Changed
+- PDF print priority changed: SumatraPDF (with simplex) → Adobe → Windows shell
+- File validation wait increased from 4 to 7 seconds for slower portal responses
+
+## [1.2.2] - 2026-01-08
+
+### Fixed
+- **Spring portal now selects ALL orders matching the PO number** before printing
+  - Previously only selected one order, missing either Economy (STANDARD MAIL SORTED) or Priority (PREMIUM MAIL SORTED)
+  - Now correctly identifies and ticks all rows with the same Customer ref (PO number)
+  - Downloads a single combined PDF manifest containing both service levels
+- Enhanced logging shows which product types are being selected (STANDARD vs PREMIUM)
+
+## [1.2.1] - 2026-01-08
+
+### Added
+- Enhanced diagnostic logging for Landmark and Spring processing to help debug multi-service-level issues
+- Detailed file collection logging showing exactly which files are queued for upload/print
+- Logging now shows Priority vs Economy breakdown for Spring order lines
+- Logging now shows primary file vs additional files split for Landmark CSVs
+
 ## [1.2.0] - 2026-01-08
 
 ### Added

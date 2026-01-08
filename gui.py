@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.2.0"
+__version__ = "1.2.3"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -54,8 +54,8 @@ def print_pdf_file(filepath: str, printer_name: str = None, close_after: bool = 
     Print a PDF file to the specified printer.
     
     Tries multiple methods in order of preference:
-    1. Adobe Acrobat/Reader (best quality, if installed)
-    2. SumatraPDF portable (bundled in tools folder - fast, silent, no install)
+    1. SumatraPDF portable (bundled in tools folder - fast, silent, supports simplex)
+    2. Adobe Acrobat/Reader (fallback if SumatraPDF not available)
     3. Windows shell print verb (last resort - may open dialogs)
     
     Args:
@@ -83,7 +83,52 @@ def print_pdf_file(filepath: str, printer_name: str = None, close_after: bool = 
         app_dir = os.path.dirname(os.path.abspath(__file__))
         
         # =================================================================
-        # METHOD 1: Try Adobe Acrobat/Reader (best quality)
+        # METHOD 1: Try SumatraPDF (portable, fast, silent, supports simplex)
+        # =================================================================
+        # Look for SumatraPDF in multiple locations
+        sumatra_paths = [
+            os.path.join(app_dir, "tools", "SumatraPDF.exe"),
+            os.path.join(app_dir, "SumatraPDF.exe"),
+            r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
+            r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
+            # Also check common portable locations
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'SumatraPDF', 'SumatraPDF.exe'),
+        ]
+        
+        sumatra_exe = None
+        for path in sumatra_paths:
+            if path and os.path.exists(path):
+                sumatra_exe = path
+                break
+        
+        if sumatra_exe:
+            # SumatraPDF command line:
+            # -print-to "printer name" : print to specific printer
+            # -print-to-default : print to default printer  
+            # -silent : don't show any dialogs or windows
+            # -print-settings "simplex" : force single-sided printing
+            # -exit-when-done : close after printing (implicit with -print-to)
+            if printer_name:
+                cmd = [sumatra_exe, '-print-to', printer_name, '-print-settings', 'simplex', '-silent', filepath]
+            else:
+                cmd = [sumatra_exe, '-print-to-default', '-print-settings', 'simplex', '-silent', filepath]
+            
+            # Run and wait briefly for print job to spool
+            proc = subprocess.Popen(cmd)
+            
+            # SumatraPDF exits automatically after printing, but give it time
+            def wait_and_cleanup():
+                try:
+                    proc.wait(timeout=30)  # Wait up to 30 seconds
+                except subprocess.TimeoutExpired:
+                    proc.terminate()
+            
+            threading.Thread(target=wait_and_cleanup, daemon=True).start()
+            
+            return True, "Sent to printer via SumatraPDF (simplex)"
+        
+        # =================================================================
+        # METHOD 2: Try Adobe Acrobat/Reader (fallback)
         # =================================================================
         adobe_paths = [
             r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
@@ -102,6 +147,7 @@ def print_pdf_file(filepath: str, printer_name: str = None, close_after: bool = 
             # Use Adobe Reader to print silently
             # /t switch: print to specified printer and exit
             # /h switch: minimized
+            # Note: Adobe uses printer's default duplex settings
             if printer_name:
                 cmd = [adobe_exe, '/t', filepath, printer_name]
             else:
@@ -126,51 +172,7 @@ def print_pdf_file(filepath: str, printer_name: str = None, close_after: bool = 
                 
                 threading.Thread(target=close_adobe_later, daemon=True).start()
             
-            return True, "Sent to printer via Adobe"
-        
-        # =================================================================
-        # METHOD 2: Try SumatraPDF (portable, fast, silent - recommended fallback)
-        # =================================================================
-        # Look for SumatraPDF in multiple locations
-        sumatra_paths = [
-            os.path.join(app_dir, "tools", "SumatraPDF.exe"),
-            os.path.join(app_dir, "SumatraPDF.exe"),
-            r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
-            r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
-            # Also check common portable locations
-            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'SumatraPDF', 'SumatraPDF.exe'),
-        ]
-        
-        sumatra_exe = None
-        for path in sumatra_paths:
-            if path and os.path.exists(path):
-                sumatra_exe = path
-                break
-        
-        if sumatra_exe:
-            # SumatraPDF command line:
-            # -print-to "printer name" : print to specific printer
-            # -print-to-default : print to default printer  
-            # -silent : don't show any dialogs or windows
-            # -exit-when-done : close after printing (implicit with -print-to)
-            if printer_name:
-                cmd = [sumatra_exe, '-print-to', printer_name, '-silent', filepath]
-            else:
-                cmd = [sumatra_exe, '-print-to-default', '-silent', filepath]
-            
-            # Run and wait briefly for print job to spool
-            proc = subprocess.Popen(cmd)
-            
-            # SumatraPDF exits automatically after printing, but give it time
-            def wait_and_cleanup():
-                try:
-                    proc.wait(timeout=30)  # Wait up to 30 seconds
-                except subprocess.TimeoutExpired:
-                    proc.terminate()
-            
-            threading.Thread(target=wait_and_cleanup, daemon=True).start()
-            
-            return True, "Sent to printer via SumatraPDF"
+            return True, "Sent to printer via Adobe (uses printer duplex settings)"
         
         # =================================================================
         # METHOD 3: Windows shell print verb (last resort)
@@ -1419,9 +1421,15 @@ Features:
         for r in results:
             if r.success and r.output_file:
                 self.last_output_files.append(r.output_file)
+                self.log(f"Collected primary output: {os.path.basename(r.output_file)}")
             # Also add any additional files (e.g., Landmark Priority CSV)
             if hasattr(r, 'additional_files') and r.additional_files:
                 self.last_output_files.extend(r.additional_files)
+                self.log(f"Collected additional files: {[os.path.basename(f) for f in r.additional_files]}")
+        
+        self.log(f"Total files collected for upload/print: {len(self.last_output_files)}")
+        for f in self.last_output_files:
+            self.log(f"  - {os.path.basename(f)}")
         
         if results:
             self.last_carrier_name = results[0].carrier_name

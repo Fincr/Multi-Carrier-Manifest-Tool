@@ -99,3 +99,8 @@ ManifestTool_Deploy/
 *.spec
 *.exe
 *.zip
+
+# ============================================
+# Tools - Local Settings
+# ============================================
+tools/SumatraPDF-settings.txt

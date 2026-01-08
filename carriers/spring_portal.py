@@ -398,8 +398,8 @@ async def _stage_upload_file(
             log(f"    ✓ File selected: {os.path.basename(file_path)}")
             
             # Wait for upload processing - portal needs time to process
-            log("    Waiting for file validation (4 seconds)...")
-            await page.wait_for_timeout(4000)
+            log("    Waiting for file validation (7 seconds)...")
+            await page.wait_for_timeout(7000)
             
             # Check for portal errors
             has_error, error_msg = await _check_for_portal_error(page)
@@ -444,14 +444,23 @@ async def _stage_view_and_select_order(
     po_number: str,
     config: SpringPortalConfig,
     log: Callable,
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, int]:
     """
-    Navigate to view orders and select the uploaded order.
+    Navigate to view orders and select ALL uploaded orders matching the PO number
+    that were created TODAY.
+    
+    Spring creates separate orders for STANDARD MAIL SORTED (Economy) and 
+    PREMIUM MAIL SORTED (Priority), so we need to select all rows with the PO.
+    
+    We filter by today's date to avoid selecting old orders with the same PO.
+    
+    If "View uploaded orders" button is not found, falls back to navigating
+    to "Order confirmation" in the left menu.
     
     Returns:
-        (success: bool, error_message: str)
+        (success: bool, error_message: str, orders_selected: int)
     """
-    # Click "View uploaded orders"
+    # Try clicking "View uploaded orders" first
     view_selectors = [
         'button:has-text("View uploaded orders")',
         'a:has-text("View uploaded orders")',
@@ -464,12 +473,35 @@ async def _stage_view_and_select_order(
         page,
         view_selectors,
         "View orders button",
-        config.timeout_ms,
+        config.timeout_ms // 2,  # Shorter timeout, we have a fallback
         log,
     )
     
     if not clicked:
-        return False, "Could not find 'View uploaded orders' button"
+        # Fallback: Navigate to "Order confirmation" in left menu
+        log("    View orders button not found, trying Order confirmation menu...")
+        
+        order_confirm_selectors = [
+            'text="Order confirmation"',
+            'a:has-text("Order confirmation")',
+            'a:has-text("Order Confirmation")',
+            '[href*="confirmation"]',
+            '[href*="confirm"]',
+            'nav a:has-text("confirmation")',
+            '.sidebar a:has-text("confirmation")',
+            '.menu a:has-text("confirmation")',
+        ]
+        
+        clicked = await _safe_click(
+            page,
+            order_confirm_selectors,
+            "Order confirmation menu",
+            config.timeout_ms // 2,
+            log,
+        )
+        
+        if not clicked:
+            return False, "Could not find 'View uploaded orders' button or 'Order confirmation' menu", 0
     
     await _wait_for_page_stable(page, config.timeout_ms // 2)
     await page.wait_for_timeout(config.inter_stage_delay_ms)
@@ -477,43 +509,209 @@ async def _stage_view_and_select_order(
     # Check for portal errors
     has_error, error_msg = await _check_for_portal_error(page)
     if has_error:
-        return False, f"Portal error when viewing orders: {error_msg[:200]}"
+        return False, f"Portal error when viewing orders: {error_msg[:200]}", 0
     
-    # Find and select the order by PO number
+    # Now select the orders
+    return await _select_orders_on_page(page, po_number, config, log)
+
+
+async def _navigate_to_order_confirmation(
+    page,
+    config: SpringPortalConfig,
+    log: Callable,
+) -> Tuple[bool, str]:
+    """
+    Navigate directly to Order confirmation page via left menu.
+    Used as fallback when View uploaded orders fails.
+    
+    Returns:
+        (success: bool, error_message: str)
+    """
+    log("  Navigating to Order confirmation...")
+    
+    order_confirm_selectors = [
+        'text="Order confirmation"',
+        'a:has-text("Order confirmation")',
+        'a:has-text("Order Confirmation")',
+        '[href*="confirmation"]',
+        '[href*="confirm"]',
+        'nav a:has-text("confirmation")',
+        '.sidebar a:has-text("confirmation")',
+        '.menu a:has-text("confirmation")',
+    ]
+    
+    clicked = await _safe_click(
+        page,
+        order_confirm_selectors,
+        "Order confirmation menu",
+        config.timeout_ms,
+        log,
+    )
+    
+    if not clicked:
+        return False, "Could not find Order confirmation menu"
+    
+    await _wait_for_page_stable(page, config.timeout_ms // 2)
+    await page.wait_for_timeout(config.inter_stage_delay_ms)
+    
+    return True, ""
+
+
+async def _select_orders_on_page(
+    page,
+    po_number: str,
+    config: SpringPortalConfig,
+    log: Callable,
+) -> Tuple[bool, str, int]:
+    """
+    Select orders on the current page (either View orders or Order confirmation page).
+    
+    Returns:
+        (success: bool, error_message: str, orders_selected: int)
+    """
+    # Find and select ALL orders by PO number
     if not po_number:
         log("    ⚠ No PO number provided, cannot select specific order")
-        return True, ""  # Partial success - upload worked
+        return True, "", 0  # Partial success - upload worked
     
-    log(f"    Looking for order: {po_number}")
+    log(f"    Looking for orders with PO: {po_number}")
+    
+    # Get today's date in the format shown in the portal (DD-MM-YYYY)
+    today_str = datetime.now().strftime("%d-%m-%Y")
+    log(f"    Filtering for orders created today: {today_str}")
+    
+    orders_selected = 0
     
     try:
-        # Find row containing the PO number
+        # Find ALL rows containing BOTH the PO number AND today's date
+        # This ensures we only select the most recent upload, not old ones with same PO
         row_selectors = [
-            f'tr:has-text("{po_number}")',
-            f'[role="row"]:has-text("{po_number}")',
-            f'div:has-text("{po_number}"):has(input[type="checkbox"])',
+            f'tr:has-text("{po_number}"):has-text("{today_str}")',
+            f'[role="row"]:has-text("{po_number}"):has-text("{today_str}")',
         ]
         
         for row_selector in row_selectors:
             try:
-                target_row = page.locator(row_selector).first
-                if await target_row.is_visible(timeout=config.timeout_ms // 3):
-                    # Find checkbox in this row
-                    checkbox = target_row.locator('input[type="checkbox"], [role="checkbox"]').first
-                    if await checkbox.is_visible(timeout=2000):
-                        await checkbox.click()
-                        log(f"    ✓ Selected order: {po_number}")
+                # Get ALL matching rows, not just the first one
+                matching_rows = page.locator(row_selector)
+                row_count = await matching_rows.count()
+                
+                if row_count > 0:
+                    # Cap at 2 orders max (one Standard, one Premium per upload)
+                    max_to_select = min(row_count, 2)
+                    log(f"    Found {row_count} order(s) matching PO {po_number}, selecting top {max_to_select}")
+                    
+                    # Click checkbox in each matching row (up to max)
+                    for i in range(max_to_select):
+                        try:
+                            row = matching_rows.nth(i)
+                            if await row.is_visible(timeout=2000):
+                                # Find checkbox in this row
+                                checkbox = row.locator('input[type="checkbox"], [role="checkbox"]').first
+                                if await checkbox.is_visible(timeout=1000):
+                                    # Check if already selected
+                                    try:
+                                        is_checked = await checkbox.is_checked()
+                                    except Exception:
+                                        is_checked = False
+                                    
+                                    if not is_checked:
+                                        await checkbox.click()
+                                        orders_selected += 1
+                                        
+                                        # Try to get the product type for logging
+                                        try:
+                                            row_text = await row.text_content()
+                                            if 'STANDARD' in row_text.upper():
+                                                log(f"    ✓ Selected: STANDARD MAIL SORTED (Economy)")
+                                            elif 'PREMIUM' in row_text.upper():
+                                                log(f"    ✓ Selected: PREMIUM MAIL SORTED (Priority)")
+                                            else:
+                                                log(f"    ✓ Selected order row {i + 1}")
+                                        except Exception:
+                                            log(f"    ✓ Selected order row {i + 1}")
+                                        
+                                        await page.wait_for_timeout(500)  # Brief pause between selections
+                                    else:
+                                        orders_selected += 1  # Already selected counts too
+                        except Exception as row_err:
+                            log(f"    ⚠ Could not select row {i + 1}: {row_err}")
+                            continue
+                    
+                    if orders_selected > 0:
+                        log(f"    ✓ Total orders selected: {orders_selected}")
                         await page.wait_for_timeout(1000)
-                        return True, ""
+                        return True, "", orders_selected
+                    
             except Exception:
                 continue
         
-        log(f"    ⚠ Could not find order row for: {po_number}")
-        return True, ""  # Partial success
+        # Fallback: if no orders found with today's date, try without date filter
+        # This handles edge cases like portal showing different date format
+        log(f"    No orders found with today's date, trying without date filter...")
+        
+        fallback_selectors = [
+            f'tr:has-text("{po_number}")',
+            f'[role="row"]:has-text("{po_number}")',
+        ]
+        
+        for row_selector in fallback_selectors:
+            try:
+                matching_rows = page.locator(row_selector)
+                row_count = await matching_rows.count()
+                
+                if row_count > 0:
+                    # Only select the FIRST 2 rows (most recent Standard + Premium)
+                    # Orders are typically shown newest first
+                    max_to_select = min(row_count, 2)
+                    log(f"    Found {row_count} order(s), selecting top {max_to_select}")
+                    
+                    for i in range(max_to_select):
+                        try:
+                            row = matching_rows.nth(i)
+                            if await row.is_visible(timeout=2000):
+                                checkbox = row.locator('input[type="checkbox"], [role="checkbox"]').first
+                                if await checkbox.is_visible(timeout=1000):
+                                    try:
+                                        is_checked = await checkbox.is_checked()
+                                    except Exception:
+                                        is_checked = False
+                                    
+                                    if not is_checked:
+                                        await checkbox.click()
+                                        orders_selected += 1
+                                        
+                                        try:
+                                            row_text = await row.text_content()
+                                            if 'STANDARD' in row_text.upper():
+                                                log(f"    ✓ Selected: STANDARD MAIL SORTED (Economy)")
+                                            elif 'PREMIUM' in row_text.upper():
+                                                log(f"    ✓ Selected: PREMIUM MAIL SORTED (Priority)")
+                                            else:
+                                                log(f"    ✓ Selected order row {i + 1}")
+                                        except Exception:
+                                            log(f"    ✓ Selected order row {i + 1}")
+                                        
+                                        await page.wait_for_timeout(500)
+                                    else:
+                                        orders_selected += 1
+                        except Exception:
+                            continue
+                    
+                    if orders_selected > 0:
+                        log(f"    ✓ Total orders selected: {orders_selected}")
+                        await page.wait_for_timeout(1000)
+                        return True, "", orders_selected
+                        
+            except Exception:
+                continue
+        
+        log(f"    ⚠ Could not find order rows for PO: {po_number}")
+        return True, "", 0  # Partial success
         
     except Exception as e:
-        log(f"    ⚠ Error selecting order: {e}")
-        return True, ""  # Partial success
+        log(f"    ⚠ Error selecting orders: {e}")
+        return True, "", orders_selected  # Partial success
 
 
 async def _dismiss_error_modal_and_refresh(page, log: Callable, timeout_ms: int = 5000) -> bool:
@@ -602,31 +800,47 @@ async def _stage_download_pdf(
             await page.wait_for_timeout(config.inter_stage_delay_ms)
         
         try:
-            # Before clicking Print, check if order is still selected
-            # After a refresh, we may need to re-select it
+            # Before clicking Print, check if orders are still selected
+            # After a refresh, we may need to re-select them
             if attempt > 0 and po_number:
-                log(f"    Re-selecting order {po_number}...")
+                log(f"    Re-selecting orders for PO {po_number}...")
                 try:
                     row_selectors = [
                         f'tr:has-text("{po_number}")',
                         f'[role="row"]:has-text("{po_number}")',
                     ]
+                    reselected_count = 0
                     for row_selector in row_selectors:
                         try:
-                            target_row = page.locator(row_selector).first
-                            if await target_row.is_visible(timeout=3000):
-                                checkbox = target_row.locator('input[type="checkbox"], [role="checkbox"]').first
-                                # Check if already selected
-                                is_checked = await checkbox.is_checked() if hasattr(checkbox, 'is_checked') else False
-                                if not is_checked:
-                                    await checkbox.click()
-                                    log(f"    ✓ Re-selected order")
+                            matching_rows = page.locator(row_selector)
+                            row_count = await matching_rows.count()
+                            
+                            for i in range(row_count):
+                                try:
+                                    row = matching_rows.nth(i)
+                                    if await row.is_visible(timeout=2000):
+                                        checkbox = row.locator('input[type="checkbox"], [role="checkbox"]').first
+                                        if await checkbox.is_visible(timeout=1000):
+                                            try:
+                                                is_checked = await checkbox.is_checked()
+                                            except Exception:
+                                                is_checked = False
+                                            
+                                            if not is_checked:
+                                                await checkbox.click()
+                                                reselected_count += 1
+                                                await page.wait_for_timeout(500)
+                                except Exception:
+                                    continue
+                            
+                            if reselected_count > 0:
+                                log(f"    ✓ Re-selected {reselected_count} order(s)")
                                 await page.wait_for_timeout(1000)
                                 break
                         except Exception:
                             continue
                 except Exception as e:
-                    log(f"    ⚠ Could not re-select order: {e}")
+                    log(f"    ⚠ Could not re-select orders: {e}")
             
             # Add a delay before clicking Print to avoid "unexpected error"
             # The portal throws errors when you progress too fast
@@ -800,7 +1014,7 @@ async def upload_to_spring_portal_robust(
                 # Stage: View and Select Order
                 current_stage = SpringPortalStage.VIEW_ORDERS
                 log("  Viewing uploaded orders...")
-                success, error = await _stage_view_and_select_order(page, po_number, config, log)
+                success, error, orders_selected = await _stage_view_and_select_order(page, po_number, config, log)
                 if not success:
                     await browser.close()
                     # Upload succeeded but couldn't navigate to orders
@@ -875,6 +1089,9 @@ async def upload_with_full_retry(
     
     This wraps upload_to_spring_portal_robust with additional retry logic
     for complete workflow failures (not just stage failures).
+    
+    On retry after VIEW_ORDERS failure, skips re-upload and goes directly
+    to Order confirmation page to select and print the already-uploaded orders.
     """
     def log(msg):
         if log_callback:
@@ -886,6 +1103,23 @@ async def upload_with_full_retry(
         if attempt > 0:
             log(f"\n  ⟳ Full workflow retry {attempt} of {max_retries}...")
             await asyncio.sleep(2)  # Brief pause between retries
+            
+            # If the last failure was at VIEW_ORDERS stage, the upload already succeeded
+            # Skip re-upload and go directly to Order confirmation
+            if last_result and last_result.stage_reached == SpringPortalStage.VIEW_ORDERS:
+                log("  Upload already completed, going to Order confirmation to select orders...")
+                result = await _retry_via_order_confirmation(
+                    po_number=po_number,
+                    output_dir=output_dir,
+                    auto_print=auto_print,
+                    config=config,
+                    log_callback=log_callback,
+                )
+                if result.success and result.pdf_downloaded:
+                    return result
+                # If that also failed, continue to next retry attempt
+                last_result = result
+                continue
         
         result = await upload_to_spring_portal_robust(
             file_path=file_path,
@@ -898,7 +1132,7 @@ async def upload_with_full_retry(
         
         last_result = result
         
-        if result.success:
+        if result.success and result.pdf_downloaded:
             return result
         
         # Decide whether to retry based on the failure stage
@@ -913,6 +1147,136 @@ async def upload_with_full_retry(
             log(f"  Failed at {result.stage_reached.value}, will retry...")
     
     return last_result
+
+
+async def _retry_via_order_confirmation(
+    po_number: str,
+    output_dir: str,
+    auto_print: bool,
+    config: Optional[SpringPortalConfig],
+    log_callback: Optional[Callable],
+) -> SpringPortalResult:
+    """
+    Retry by going directly to Order confirmation page.
+    
+    Used when upload succeeded but View uploaded orders failed.
+    Logs in, navigates to Order confirmation, selects orders, and downloads PDF.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return SpringPortalResult(
+            success=False,
+            message="Playwright not installed",
+            stage_reached=SpringPortalStage.INIT,
+        )
+    
+    from core.credentials import get_spring_credentials
+    creds = get_spring_credentials()
+    if not creds.is_valid():
+        return SpringPortalResult(
+            success=False,
+            message="Spring credentials not configured",
+            stage_reached=SpringPortalStage.INIT,
+        )
+    
+    config = config or SpringPortalConfig()
+    
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+    
+    try:
+        async with async_playwright() as p:
+            log("  Launching browser...")
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context()
+            page = await context.new_page()
+            
+            try:
+                # Navigate and login
+                log("  Navigating to Spring portal...")
+                await page.goto("https://my.spring-gds.com/", wait_until="domcontentloaded", timeout=config.timeout_ms)
+                
+                log("  Logging in...")
+                success, error = await _stage_login(page, creds.email, creds.password, config, log)
+                if not success:
+                    await browser.close()
+                    return SpringPortalResult(
+                        success=False,
+                        message=f"Login failed: {error}",
+                        stage_reached=SpringPortalStage.LOGIN,
+                    )
+                
+                # Go directly to Order confirmation
+                success, error = await _navigate_to_order_confirmation(page, config, log)
+                if not success:
+                    await browser.close()
+                    return SpringPortalResult(
+                        success=False,
+                        message=f"Could not navigate to Order confirmation: {error}",
+                        stage_reached=SpringPortalStage.VIEW_ORDERS,
+                    )
+                
+                # Select orders
+                log("  Selecting orders...")
+                success, error, orders_selected = await _select_orders_on_page(page, po_number, config, log)
+                if not success or orders_selected == 0:
+                    await browser.close()
+                    return SpringPortalResult(
+                        success=True,  # Partial - upload worked earlier
+                        message=f"Could not select orders: {error}",
+                        stage_reached=SpringPortalStage.SELECT_ORDER,
+                        pdf_downloaded=False,
+                    )
+                
+                # Download PDF
+                log("  Downloading manifest PDF...")
+                success, error, pdf_path = await _stage_download_pdf(
+                    page, po_number, output_dir, config, log
+                )
+                
+                await browser.close()
+                
+                if not success:
+                    return SpringPortalResult(
+                        success=True,
+                        message=f"Orders selected but PDF download failed: {error}",
+                        stage_reached=SpringPortalStage.DOWNLOAD_PDF,
+                        pdf_downloaded=False,
+                    )
+                
+                # Print if requested
+                if auto_print and pdf_path:
+                    log("  Printing manifest...")
+                    from gui import print_pdf_file
+                    print_success, print_msg = print_pdf_file(pdf_path)
+                    if print_success:
+                        log(f"    ✓ {print_msg}")
+                    else:
+                        log(f"    ⚠ Print failed: {print_msg}")
+                
+                return SpringPortalResult(
+                    success=True,
+                    message="Order confirmation retry successful - PDF downloaded and printed",
+                    stage_reached=SpringPortalStage.COMPLETE,
+                    pdf_downloaded=True,
+                    pdf_path=pdf_path,
+                )
+                
+            except Exception as e:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+                raise e
+                
+    except Exception as e:
+        return SpringPortalResult(
+            success=False,
+            message=f"Order confirmation retry failed: {str(e)}",
+            stage_reached=SpringPortalStage.VIEW_ORDERS,
+        )
 
 
 def run_spring_upload_robust(
