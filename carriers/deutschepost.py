@@ -14,13 +14,13 @@ Portal workflow:
 - Submit and download manifest PDF
 """
 
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Tuple, Optional
 from dataclasses import dataclass
 from datetime import datetime
 import os
 from openpyxl import load_workbook
 
-from .base import BaseCarrier, ShipmentRecord, PlacementResult
+from .base import BaseCarrier
 
 
 @dataclass

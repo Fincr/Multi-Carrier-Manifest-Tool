@@ -27,7 +27,6 @@ from tkinter import filedialog, messagebox, scrolledtext
 from tkinter import ttk
 from datetime import datetime
 import asyncio
-from functools import wraps
 
 # Add parent directory to path for imports when running directly
 if __name__ == "__main__":
@@ -35,8 +34,7 @@ if __name__ == "__main__":
 
 from core.engine import ManifestEngine
 from core.config import get_config, save_config, AppConfig, get_available_printers
-from core.credentials import get_spring_credentials, get_landmark_credentials
-from carriers import list_carriers
+from core.credentials import get_landmark_credentials
 
 
 def get_portal_timeout_ms() -> int:
@@ -160,16 +158,16 @@ def print_pdf_file(filepath: str, printer_name: str = None, close_after: bool = 
                     time.sleep(close_delay)
                     try:
                         proc.terminate()
-                    except:
+                    except Exception:
                         pass
                     try:
-                        subprocess.run(['taskkill', '/F', '/IM', 'Acrobat.exe'], 
+                        subprocess.run(['taskkill', '/F', '/IM', 'Acrobat.exe'],
                                      capture_output=True, timeout=5)
-                        subprocess.run(['taskkill', '/F', '/IM', 'AcroRd32.exe'], 
+                        subprocess.run(['taskkill', '/F', '/IM', 'AcroRd32.exe'],
                                      capture_output=True, timeout=5)
-                    except:
+                    except Exception:
                         pass
-                
+
                 threading.Thread(target=close_adobe_later, daemon=True).start()
             
             return True, "Sent to printer via Adobe (uses printer duplex settings)"
@@ -198,9 +196,9 @@ def print_pdf_file(filepath: str, printer_name: str = None, close_after: bool = 
                     ]
                     for viewer in viewers_to_close:
                         try:
-                            subprocess.run(['taskkill', '/F', '/IM', viewer], 
+                            subprocess.run(['taskkill', '/F', '/IM', viewer],
                                          capture_output=True, timeout=5)
-                        except:
+                        except Exception:
                             pass
                 
                 threading.Thread(target=close_pdf_viewers_later, daemon=True).start()
@@ -274,16 +272,16 @@ def print_excel_workbook(filepath: str, printer_name: str = None) -> tuple[bool,
         if wb:
             try:
                 wb.Close(SaveChanges=False)
-            except:
+            except Exception:
                 pass
         if excel:
             try:
                 excel.Quit()
-            except:
+            except Exception:
                 pass
         try:
             pythoncom.CoUninitialize()
-        except:
+        except Exception:
             pass
 
 
@@ -390,9 +388,9 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                             log("    ✓ Cookie consent accepted")
                             await page.wait_for_timeout(1000)
                             break
-                    except:
+                    except Exception:
                         continue
-                
+
                 # Enter credentials
                 log("  Entering credentials...")
                 await page.wait_for_selector('input[name="username"], input[type="text"], input[id*="user"], input[name="j_username"]', timeout=get_portal_timeout_ms())
@@ -404,9 +402,9 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         element = page.locator(selector).first
                         if await element.is_visible(timeout=1000):
                             await element.fill(USERNAME)
-                            log(f"    ✓ Username entered")
+                            log("    ✓ Username entered")
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 # Find and fill password field
@@ -416,9 +414,9 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         element = page.locator(selector).first
                         if await element.is_visible(timeout=1000):
                             await element.fill(PASSWORD)
-                            log(f"    ✓ Password entered")
+                            log("    ✓ Password entered")
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 # Click Sign In button
@@ -439,7 +437,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         if await element.is_visible(timeout=1000):
                             await element.click()
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
@@ -454,9 +452,9 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                             log("    ✓ Cookie consent accepted (post-login)")
                             await page.wait_for_timeout(1000)
                             break
-                    except:
+                    except Exception:
                         continue
-                
+
                 log("  ✓ Logged in successfully")
                 
                 # Click "e-Shipper bpost international"
@@ -477,9 +475,9 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         if await element.is_visible(timeout=3000):
                             await element.click()
                             clicked = True
-                            log(f"    ✓ Found e-Shipper link")
+                            log("    ✓ Found e-Shipper link")
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 if not clicked:
@@ -517,15 +515,15 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                             if await element.is_visible(timeout=3000):
                                 await element.click()
                                 clicked = True
-                                log(f"      ✓ Found upload link")
+                                log("      ✓ Found upload link")
                                 break
-                        except:
+                        except Exception:
                             continue
                     
                     if not clicked:
                         screenshot_path = os.path.join(output_dir, f"landmark_debug_upload_{service_type}.png")
                         await page.screenshot(path=screenshot_path)
-                        log(f"    ⚠ Could not find 'Upload deposit csv' link. Screenshot saved.")
+                        log("    ⚠ Could not find 'Upload deposit csv' link. Screenshot saved.")
                         continue
                     
                     await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
@@ -536,7 +534,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                     try:
                         file_input = page.locator('input[type="file"]').first
                         await file_input.set_input_files(file_path)
-                        log(f"      ✓ File selected")
+                        log("      ✓ File selected")
                     except Exception as e:
                         log(f"    ⚠ Could not select file: {e}")
                         continue
@@ -559,20 +557,19 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                             if await element.is_visible(timeout=2000):
                                 await element.click()
                                 clicked = True
-                                log(f"      ✓ Upload button clicked")
+                                log("      ✓ Upload button clicked")
                                 break
-                        except:
+                        except Exception:
                             continue
                     
                     if not clicked:
-                        log(f"    ⚠ Could not find Upload button")
+                        log("    ⚠ Could not find Upload button")
                         continue
                     
                     await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
                     await page.wait_for_timeout(2000)
                     
                     # Check for specific validation errors (be more precise than just "error" in page)
-                    page_content = await page.content()
                     page_text = await page.inner_text('body')
                     
                     # Look for specific error indicators
@@ -633,10 +630,6 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                                         
                                         # Try to download the PDF content
                                         try:
-                                            import urllib.request
-                                            # Get cookies from browser context for authenticated download
-                                            cookies = await context.cookies()
-                                            
                                             # Use page to download
                                             pdf_response = await new_page.context.request.get(new_url)
                                             pdf_bytes = await pdf_response.body()
@@ -659,7 +652,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                                     await new_page.close()
                                     break
                                     
-                                except Exception as popup_err:
+                                except Exception:
                                     # No popup - try download approach
                                     pass
                                 
@@ -679,21 +672,21 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                                         downloaded_files.append(downloaded_path)
                                         log(f"    ✓ Downloaded: {downloaded_filename}")
                                         break
-                                    except Exception as download_err:
+                                    except Exception:
                                         # Click without download capture
                                         if not clicked:
                                             await element.click()
                                             clicked = True
-                                        log(f"      Note: PDF may have opened in browser")
+                                        log("      Note: PDF may have opened in browser")
                                 
                                 break
-                        except Exception as e:
+                        except Exception:
                             continue
                     
                     if not clicked:
                         screenshot_path = os.path.join(output_dir, f"landmark_debug_final_{service_type}.png")
                         await page.screenshot(path=screenshot_path)
-                        log(f"    ⚠ Could not find 'Final acceptance' button. Screenshot saved.")
+                        log("    ⚠ Could not find 'Final acceptance' button. Screenshot saved.")
                     
                     await page.wait_for_timeout(2000)
                 
@@ -717,10 +710,10 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
             except Exception as e:
                 try:
                     await browser.close()
-                except:
+                except Exception:
                     pass
                 raise e
-                
+
     except Exception as e:
         return False, f"Upload failed: {str(e)}", False
 
@@ -764,7 +757,7 @@ async def upload_to_landmark_portal(file_paths: list, po_number: str = "", outpu
         last_error = message
         if "Timeout" in message or "timeout" in message:
             if attempt < get_portal_retry_count():
-                log(f"  ⚠ Timeout occurred, will retry...")
+                log("  ⚠ Timeout occurred, will retry...")
                 continue
         else:
             # Non-timeout error, don't retry
@@ -1697,7 +1690,7 @@ Features:
                 except Exception as e:
                     log_msg(f"  ⚠ Could not delete upload file {os.path.basename(filepath)}: {e}")
         elif success:
-            log_msg(f"  ⚠ Upload files retained for debugging")
+            log_msg("  ⚠ Upload files retained for debugging")
         
         # Update UI on main thread
         self.root.after(0, self._on_upload_complete, success, message)
@@ -1737,7 +1730,7 @@ Features:
         carrier = DeutschePostCarrier()
         item_format = carrier.get_item_format(data.formats)
         
-        log_msg(f"Registering on Deutsche Post portal...")
+        log_msg("Registering on Deutsche Post portal...")
         log_msg(f"  PO Number: {data.po_number}")
         log_msg(f"  Total Weight: {data.total_weight} kg")
         log_msg(f"  Item Format: {item_format}")
@@ -1781,7 +1774,7 @@ def main():
     except Exception:
         pass
     
-    app = ManifestToolApp(root)
+    ManifestToolApp(root)
     root.mainloop()
 
 

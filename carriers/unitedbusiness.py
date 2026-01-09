@@ -6,7 +6,7 @@ Single service type with format-based columns (Letters, Flats, Packets).
 Some countries have multiple weight bands (China, Russia, Ukraine).
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 from .base import BaseCarrier, ShipmentRecord, PlacementResult
 
 

@@ -8,7 +8,6 @@ Handles three distinct sheet structures:
 """
 
 from typing import Dict, Tuple, List, Optional
-from openpyxl import load_workbook
 from .base import BaseCarrier, ShipmentRecord, PlacementResult
 
 

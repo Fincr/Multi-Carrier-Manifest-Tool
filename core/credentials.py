@@ -7,7 +7,6 @@ NEVER commit credentials to source control.
 
 import os
 from dataclasses import dataclass
-from typing import Optional
 from pathlib import Path
 
 

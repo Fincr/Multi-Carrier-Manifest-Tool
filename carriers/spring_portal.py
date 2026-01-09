@@ -86,11 +86,11 @@ async def _wait_for_page_stable(page, timeout_ms: int = 5000, check_interval_ms:
         return True
     except Exception:
         pass
-    
+
     # Fallback: manual stability check
     start_time = asyncio.get_event_loop().time()
     max_time = start_time + (timeout_ms / 1000)
-    
+
     while asyncio.get_event_loop().time() < max_time:
         try:
             # Try a shorter networkidle wait
@@ -98,7 +98,7 @@ async def _wait_for_page_stable(page, timeout_ms: int = 5000, check_interval_ms:
             return True
         except Exception:
             await page.wait_for_timeout(check_interval_ms)
-    
+
     return False
 
 
@@ -623,9 +623,9 @@ async def _select_orders_on_page(
                                         try:
                                             row_text = await row.text_content()
                                             if 'STANDARD' in row_text.upper():
-                                                log(f"    ✓ Selected: STANDARD MAIL SORTED (Economy)")
+                                                log("    ✓ Selected: STANDARD MAIL SORTED (Economy)")
                                             elif 'PREMIUM' in row_text.upper():
-                                                log(f"    ✓ Selected: PREMIUM MAIL SORTED (Priority)")
+                                                log("    ✓ Selected: PREMIUM MAIL SORTED (Priority)")
                                             else:
                                                 log(f"    ✓ Selected order row {i + 1}")
                                         except Exception:
@@ -648,7 +648,7 @@ async def _select_orders_on_page(
         
         # Fallback: if no orders found with today's date, try without date filter
         # This handles edge cases like portal showing different date format
-        log(f"    No orders found with today's date, trying without date filter...")
+        log("    No orders found with today's date, trying without date filter...")
         
         fallback_selectors = [
             f'tr:has-text("{po_number}")',
@@ -684,9 +684,9 @@ async def _select_orders_on_page(
                                         try:
                                             row_text = await row.text_content()
                                             if 'STANDARD' in row_text.upper():
-                                                log(f"    ✓ Selected: STANDARD MAIL SORTED (Economy)")
+                                                log("    ✓ Selected: STANDARD MAIL SORTED (Economy)")
                                             elif 'PREMIUM' in row_text.upper():
-                                                log(f"    ✓ Selected: PREMIUM MAIL SORTED (Priority)")
+                                                log("    ✓ Selected: PREMIUM MAIL SORTED (Priority)")
                                             else:
                                                 log(f"    ✓ Selected order row {i + 1}")
                                         except Exception:

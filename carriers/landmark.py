@@ -228,9 +228,9 @@ class LandmarkCarrier(BaseCarrier):
         files_created = []
         
         # Group by product code
-        economy_lines = [l for l in self._order_lines if l.product_code == '12SL03']
-        priority_lines = [l for l in self._order_lines if l.product_code == '12SL02']
-        
+        economy_lines = [line for line in self._order_lines if line.product_code == '12SL03']
+        priority_lines = [line for line in self._order_lines if line.product_code == '12SL02']
+
         # Write Economy file
         if economy_lines:
             filename = f"Landmark_Economy_{self._file_date}_{self._po_number}.csv"
@@ -269,8 +269,8 @@ class LandmarkCarrier(BaseCarrier):
     
     def get_summary(self) -> Dict[str, dict]:
         """Get a summary of accumulated order lines by service type."""
-        economy_lines = [l for l in self._order_lines if l.product_code == '12SL03']
-        priority_lines = [l for l in self._order_lines if l.product_code == '12SL02']
+        economy_lines = [line for line in self._order_lines if line.product_code == '12SL03']
+        priority_lines = [line for line in self._order_lines if line.product_code == '12SL02']
         
         summary = {}
         
@@ -278,16 +278,16 @@ class LandmarkCarrier(BaseCarrier):
             summary['Economy'] = {
                 'product_code': '12SL03',
                 'rows': len(economy_lines),
-                'total_pieces': sum(l.pieces for l in economy_lines),
-                'total_weight_kg': round(sum(l.weight_kg for l in economy_lines), 3),
+                'total_pieces': sum(line.pieces for line in economy_lines),
+                'total_weight_kg': round(sum(line.weight_kg for line in economy_lines), 3),
             }
-        
+
         if priority_lines:
             summary['Priority'] = {
                 'product_code': '12SL02',
                 'rows': len(priority_lines),
-                'total_pieces': sum(l.pieces for l in priority_lines),
-                'total_weight_kg': round(sum(l.weight_kg for l in priority_lines), 3),
+                'total_pieces': sum(line.pieces for line in priority_lines),
+                'total_weight_kg': round(sum(line.weight_kg for line in priority_lines), 3),
             }
         
         return summary

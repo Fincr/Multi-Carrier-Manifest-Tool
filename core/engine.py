@@ -3,14 +3,13 @@ Core manifest population engine.
 """
 
 import os
-import tempfile
 from datetime import datetime
 from typing import List, Tuple, Dict, Callable, Optional
 from dataclasses import dataclass, field
 import pandas as pd
 from openpyxl import load_workbook
 
-from carriers import get_carrier, ShipmentRecord, list_carriers
+from carriers import get_carrier, ShipmentRecord
 from carriers.spring import SpringCarrier
 from carriers.landmark import LandmarkCarrier
 from carriers.deutschepost import DeutschePostCarrier
@@ -273,8 +272,8 @@ class ManifestEngine:
         
         # Write order lines to manifest
         order_lines = carrier.get_order_lines()
-        priority_count = len([l for l in order_lines if l.product_code == '1MI'])
-        economy_count = len([l for l in order_lines if l.product_code == '2MI'])
+        priority_count = len([line for line in order_lines if line.product_code == '1MI'])
+        economy_count = len([line for line in order_lines if line.product_code == '2MI'])
         self.log(f"Generated {len(order_lines)} order lines (Priority: {priority_count}, Economy: {economy_count})")
         carrier.write_manifest(template_path, output_path)
         self.log(f"Saved upload file: {output_filename}")
@@ -428,14 +427,14 @@ class ManifestEngine:
                 self.output_dir
             )
             
-            self.log(f"Extracted data:")
+            self.log("Extracted data:")
             self.log(f"  PO Number: {extracted_data.po_number}")
             self.log(f"  Total Weight: {extracted_data.total_weight} kg")
             self.log(f"  Total Items: {extracted_data.total_items}")
             self.log(f"  Formats: {', '.join(extracted_data.formats)}")
             self.log(f"  Item Format for portal: {carrier.get_item_format(extracted_data.formats)}")
-            self.log(f"")
-            self.log(f"Removed (EMB) Manifest sheet")
+            self.log("")
+            self.log("Removed (EMB) Manifest sheet")
             self.log(f"Saved: {os.path.basename(output_path)}")
             
             return ProcessingResult(

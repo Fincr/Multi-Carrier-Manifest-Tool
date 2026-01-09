@@ -6,7 +6,7 @@ Handles loading/saving settings to config.json and provides defaults.
 
 import os
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from typing import Optional
 
 

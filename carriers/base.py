@@ -5,7 +5,6 @@ Base carrier class defining the interface all carrier modules must implement.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
-import pandas as pd
 
 
 @dataclass

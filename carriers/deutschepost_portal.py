@@ -84,7 +84,7 @@ async def _upload_to_deutschepost_portal_impl(
                             log("    ✓ Cookie consent accepted")
                             await page.wait_for_timeout(1000)
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 await page.wait_for_timeout(2000)
@@ -105,7 +105,7 @@ async def _upload_to_deutschepost_portal_impl(
                             await element.fill(EMAIL)
                             log("    ✓ Email entered")
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 # Enter password
@@ -114,7 +114,7 @@ async def _upload_to_deutschepost_portal_impl(
                     if await password_field.is_visible(timeout=2000):
                         await password_field.fill(PASSWORD)
                         log("    ✓ Password entered")
-                except:
+                except Exception:
                     pass
                 
                 # Click Login button
@@ -134,7 +134,7 @@ async def _upload_to_deutschepost_portal_impl(
                             await element.click()
                             clicked = True
                             break
-                    except:
+                    except Exception:
                         continue
                 
                 if not clicked:
@@ -185,9 +185,9 @@ async def _upload_to_deutschepost_portal_impl(
                                     break
                         if clicked:
                             break
-                    except:
+                    except Exception:
                         continue
-                
+
                 if not clicked:
                     screenshot_path = os.path.join(output_dir, "dp_debug_prepare_awb.png")
                     await page.screenshot(path=screenshot_path)
@@ -219,9 +219,9 @@ async def _upload_to_deutschepost_portal_impl(
                                 break
                         if clicked:
                             break
-                    except:
+                    except Exception:
                         continue
-                
+
                 if not clicked:
                     screenshot_path = os.path.join(output_dir, "dp_debug_print_awb.png")
                     await page.screenshot(path=screenshot_path)
@@ -371,9 +371,9 @@ async def _upload_to_deutschepost_portal_impl(
                                 try:
                                     subprocess.run(['taskkill', '/F', '/IM', 'Acrobat.exe'], 
                                                  capture_output=True, timeout=5)
-                                    subprocess.run(['taskkill', '/F', '/IM', 'AcroRd32.exe'], 
+                                    subprocess.run(['taskkill', '/F', '/IM', 'AcroRd32.exe'],
                                                  capture_output=True, timeout=5)
-                                except:
+                                except Exception:
                                     pass
                             import threading
                             threading.Thread(target=close_adobe_later, daemon=True).start()
@@ -383,19 +383,19 @@ async def _upload_to_deutschepost_portal_impl(
                         print_msg = str(print_err)
                     if print_success:
                         log(f"  ✓ {print_msg}")
-                        return True, f"Manifest created, downloaded and printed successfully"
+                        return True, "Manifest created, downloaded and printed successfully"
                     else:
                         log(f"  ⚠ {print_msg}")
                         return True, f"Manifest created and downloaded. Print failed: {print_msg}"
                 elif downloaded_file:
-                    return True, f"Manifest created and downloaded successfully"
+                    return True, "Manifest created and downloaded successfully"
                 else:
                     return False, "Failed to download manifest"
                 
             except Exception as e:
                 try:
                     await browser.close()
-                except:
+                except Exception:
                     pass
                 raise e
                 
@@ -438,7 +438,7 @@ async def upload_to_deutschepost_portal(
         last_error = message
         if "Timeout" in message or "timeout" in message:
             if attempt < retry_count:
-                log(f"  ⚠ Timeout occurred, will retry...")
+                log("  ⚠ Timeout occurred, will retry...")
                 continue
         else:
             break

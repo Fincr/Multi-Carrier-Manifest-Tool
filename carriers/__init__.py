@@ -2,7 +2,7 @@
 Carrier modules for manifest population.
 """
 
-from .base import BaseCarrier, ShipmentRecord, PlacementResult
+from .base import BaseCarrier, ShipmentRecord as ShipmentRecord, PlacementResult as PlacementResult
 from .asendia import AsendiaCarrier, Asendia2025Carrier
 from .postnord import PostNordCarrier
 from .spring import SpringCarrier

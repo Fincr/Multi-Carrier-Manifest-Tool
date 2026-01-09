@@ -7,8 +7,7 @@ country/format combination is a separate row, rather than a matrix layout.
 
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
-from openpyxl import load_workbook, Workbook
-from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl import load_workbook
 from .base import BaseCarrier, ShipmentRecord, PlacementResult
 
 
@@ -391,8 +390,8 @@ class SpringCarrier(BaseCarrier):
                 ws.cell(row=row, column=col).value = None
         
         # Group order lines by product code (1MI first, then 2MI)
-        priority_lines = [l for l in self._order_lines if l.product_code == '1MI']
-        economy_lines = [l for l in self._order_lines if l.product_code == '2MI']
+        priority_lines = [line for line in self._order_lines if line.product_code == '1MI']
+        economy_lines = [line for line in self._order_lines if line.product_code == '2MI']
         
         row_idx = 2  # Start writing from row 2 (row 1 is headers)
         
