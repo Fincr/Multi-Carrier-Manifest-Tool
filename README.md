@@ -2,8 +2,29 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.1.0  
+**Version:** 1.2.3
 **Author:** Finlay Crawley
+
+## What's New in v1.2.x
+
+**v1.2.3** - Enhanced reliability and printing improvements:
+- Spring portal now gracefully falls back between menu paths ("View uploaded orders" → "Order confirmation")
+- Smart retry logic skips re-upload if file already uploaded successfully
+- **Single-sided (simplex) printing** via SumatraPDF to reduce paper usage
+- PDF print priority changed: SumatraPDF now preferred over Adobe
+- Order selection limited to 2 most recent to avoid old order conflicts
+
+**v1.2.2** - Multi-service level support:
+- Spring portal now selects ALL matching orders (both Economy and Priority)
+- Combined PDF manifest includes both STANDARD and PREMIUM service levels
+- Enhanced logging for service type selection
+
+**v1.2.0** - Robust portal automation:
+- Comprehensive error handling for unreliable Spring portal behavior
+- Per-stage retry logic with configurable retry counts
+- Multiple wait strategies for post-login hangs
+- Graceful degradation when PDF download fails
+- Debug screenshots on portal failures
 
 ## Supported Carriers
 
@@ -29,21 +50,28 @@ Automated population of carrier manifests from internal carrier sheets, with int
 - Configurable error threshold with detailed logging
 
 ### Portal Automation
-- **Spring Global**: Automatic upload, manifest PDF download, and printing
+- **Spring Global**: Robust automated upload with multi-order selection, combined PDF download, and printing
+  - Handles both Economy (STANDARD) and Priority (PREMIUM) service levels in single manifest
+  - Comprehensive error handling with per-stage retry logic
+  - Multiple wait strategies for unreliable portal behavior
+  - Graceful fallback between "View uploaded orders" and "Order confirmation" menu paths
+  - Smart retry logic (skips re-upload if already successful)
 - **Landmark Global**: Automatic CSV upload (separate files for Economy/Priority)
 - **Deutsche Post**: Form-based manifest registration
-- Configurable timeouts, retry counts, and screenshot debugging
+- Configurable timeouts, retry counts (global and per-stage), and screenshot debugging
 
 ### Printing
 - Auto-print manifests to network printer
-- Three-tier PDF printing: Adobe Acrobat → SumatraPDF → Windows Shell
+- Three-tier PDF printing: SumatraPDF (simplex) → Adobe Acrobat → Windows Shell
+- Single-sided (simplex) printing to reduce paper usage
 - Fit-to-page printing for Excel workbooks
 - Configurable PDF close delay
 
 ### Settings
 - Printer selection from available Windows printers
 - Portal timeout (5-120 seconds)
-- Retry count (0-5 attempts)
+- Portal retry count (0-5 attempts for entire upload workflow)
+- Portal stage retry count (0-5 attempts per individual stage, e.g., login, upload, print)
 - PDF close delay (1-30 seconds)
 - Max errors before stop (1-50)
 - All settings persist to `config.json`
@@ -56,15 +84,31 @@ Automated population of carrier manifests from internal carrier sheets, with int
 
 ### Dependencies
 ```bash
-pip install openpyxl pandas pywin32 playwright
+pip install openpyxl pandas pywin32 playwright python-dotenv
 playwright install chromium
+```
+
+Alternatively, use the provided setup script:
+```bash
+first_time_setup.bat
 ```
 
 ### Setup
 1. Clone or copy the project folder
 2. Place carrier manifest templates in `templates/`
 3. (Optional) Place `SumatraPDF.exe` in `tools/` for reliable PDF printing
-4. Run `python gui.py` or use `Run Manifest Tool.bat`
+4. (Optional) Create `.env` file with portal credentials for automated uploads:
+   ```
+   SPRING_EMAIL=your_email@example.com
+   SPRING_PASSWORD=your_password
+   LANDMARK_EMAIL=your_email@example.com
+   LANDMARK_PASSWORD=your_password
+   DEUTSCHEPOST_EMAIL=your_email@example.com
+   DEUTSCHEPOST_PASSWORD=your_password
+   DEUTSCHEPOST_CONTACT=Your Name
+   ```
+   See `.env.example` for template.
+5. Run `python gui.py` or use `Run Manifest Tool.bat`
 
 ### PDF Printing (For Deployment)
 
@@ -72,11 +116,11 @@ The tool uses this priority for PDF printing:
 
 | Priority | Method | Notes |
 |----------|--------|-------|
-| 1 | Adobe Acrobat/Reader | Best quality (if installed) |
-| 2 | SumatraPDF | Fast, silent, portable (place in `tools/`) |
+| 1 | SumatraPDF | Fast, silent, portable, **single-sided printing** (place in `tools/`) |
+| 2 | Adobe Acrobat/Reader | Best quality (if installed) |
 | 3 | Windows Shell | Last resort (may show dialogs) |
 
-**For machines without Adobe:** Download [SumatraPDF Portable](https://www.sumatrapdfreader.org/download-free-pdf-viewer) and place `SumatraPDF.exe` in the `tools/` folder.
+**Recommended Setup:** Download [SumatraPDF Portable](https://www.sumatrapdfreader.org/download-free-pdf-viewer) and place `SumatraPDF.exe` in the `tools/` folder. SumatraPDF is now the preferred method as it supports single-sided (simplex) printing, reducing paper usage.
 
 ## Usage
 
@@ -136,7 +180,13 @@ Data starts at row 9 with headers at row 8:
 ### Spring Global Delivery Solutions
 - **Structure**: Flat order lines grouped by product code (1MI/2MI)
 - **Output**: Excel file uploaded to Spring portal
-- **Portal**: my.spring-gds.com - downloads manifest PDF automatically
+- **Portal**: my.spring-gds.com - robust automated workflow
+  - Uploads Excel file to portal
+  - Selects ALL matching orders (both STANDARD and PREMIUM service levels)
+  - Downloads combined PDF manifest containing both Economy and Priority shipments
+  - Automatically prints single-sided manifest
+  - Smart retry logic with per-stage error handling
+  - Graceful fallback between menu paths if portal layout changes
 - **Codes**: EU uses B/L/N format codes; ROW uses P/G/E codes
 
 ### Landmark Global
@@ -190,9 +240,11 @@ Settings are stored in `config.json`:
 {
   "printer_name": "\\\\print01.citipost.co.uk\\KT02",
   "portal_timeout_ms": 30000,
-  "portal_retry_count": 3,
+  "portal_retry_count": 2,
+  "portal_stage_retry_count": 2,
   "pdf_close_delay_seconds": 7,
-  "max_errors": 5
+  "max_errors_before_stop": 5,
+  "default_output_dir": "U:\\Erith\\Hailey Road\\International Ops\\Pre-Alerts\\Dispatch #1"
 }
 ```
 
@@ -226,6 +278,7 @@ Multi Carrier Manifest Automation/
 │   ├── asendia.py           # Asendia 2025/2026 handler
 │   ├── postnord.py          # PostNord handler
 │   ├── spring.py            # Spring Global handler (order lines)
+│   ├── spring_portal.py     # Spring Global robust portal automation
 │   ├── landmark.py          # Landmark Global handler (CSV generation)
 │   ├── deutschepost.py      # Deutsche Post handler
 │   ├── deutschepost_portal.py  # Deutsche Post portal automation
@@ -235,7 +288,8 @@ Multi Carrier Manifest Automation/
 ├── core/
 │   ├── __init__.py
 │   ├── engine.py            # Processing engine
-│   └── config.py            # Configuration management
+│   ├── config.py            # Configuration management
+│   └── credentials.py       # Portal credential loading (.env)
 ├── templates/
 │   ├── Asendia_UK_Business_2026_Mail_Manifest.xlsx
 │   ├── Asendia_UK_Business_Mail_2025.xlsx
