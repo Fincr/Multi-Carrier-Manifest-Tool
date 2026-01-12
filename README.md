@@ -2,10 +2,16 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.2.3
+**Version:** 1.2.4
 **Author:** Finlay Crawley
 
 ## What's New in v1.2.x
+
+**v1.2.4** - Auto-update on launch:
+- The launcher now automatically pulls the latest changes from Git before starting
+- Updates happen silently in the background - no manual `update.bat` required
+- If update fails (no internet, etc.), the app launches normally anyway
+- Update failures are logged to `update_errors.log` for troubleshooting
 
 **v1.2.3** - Enhanced reliability and printing improvements:
 - Spring portal now gracefully falls back between menu paths ("View uploaded orders" → "Order confirmation")
@@ -108,7 +114,7 @@ first_time_setup.bat
    DEUTSCHEPOST_CONTACT=Your Name
    ```
    See `.env.example` for template.
-5. Run `python gui.py` or use `Run Manifest Tool.bat`
+5. Run `python gui.py` or double-click `Run Manifest Tool.vbs` (auto-updates from Git)
 
 ### PDF Printing (For Deployment)
 
@@ -304,7 +310,9 @@ Multi Carrier Manifest Automation/
 │   └── README.md            # Setup instructions
 ├── gui.py                   # Main application
 ├── config.json              # User settings (auto-generated)
-├── Run Manifest Tool.bat    # Quick launcher
+├── Run Manifest Tool.vbs    # Quick launcher (auto-updates from Git)
+├── update.bat               # Manual update script (git pull)
+├── first_time_setup.bat     # Initial setup script
 ├── CHANGELOG.md             # Version history
 └── README.md                # This file
 ```

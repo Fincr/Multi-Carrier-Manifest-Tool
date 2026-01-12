@@ -5,6 +5,15 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-01-12
+
+### Added
+- **Auto-update on launch** - The launcher (`Run Manifest Tool.vbs`) now automatically pulls the latest changes from Git before starting the application
+  - Updates happen silently in the background
+  - If update fails (no internet, Git not available, etc.), the app still launches normally
+  - Update failures are logged to `update_errors.log` for troubleshooting
+  - No more need to manually run `update.bat` - just double-click to run and you're always up to date
+
 ## [1.2.3] - 2026-01-08
 
 ### Fixed

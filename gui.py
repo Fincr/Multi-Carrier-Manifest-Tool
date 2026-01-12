@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.2.3"
+__version__ = "1.2.4"
 __author__ = "Finlay Crawley"
 
 import sys
