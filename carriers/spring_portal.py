@@ -714,13 +714,139 @@ async def _select_orders_on_page(
         return True, "", orders_selected  # Partial success
 
 
-async def _dismiss_error_modal_and_refresh(page, log: Callable, timeout_ms: int = 5000) -> bool:
+async def _hard_refresh_page(page, log: Callable, timeout_ms: int = 30000) -> bool:
     """
-    Dismiss the "unexpected error" modal and refresh the page.
-    
+    Perform a hard refresh that mimics manually clicking the browser refresh button.
+
+    This is more thorough than page.reload() because it:
+    1. Uses JavaScript location.reload(true) for cache-bypassing reload
+    2. Falls back to full URL navigation if that fails
+    3. Waits for actual page elements to confirm the page is truly loaded
+
+    Returns:
+        True if refresh succeeded and page is ready, False otherwise
+    """
+    current_url = page.url
+
+    # Strategy 1: JavaScript hard reload (cache-bypass)
+    # This is closest to pressing F5/Ctrl+R in the browser
+    try:
+        log("    Performing hard refresh...")
+
+        # Use JavaScript to force a true reload from server, not cache
+        # location.reload(true) is deprecated but still works in most browsers
+        # and forces a cache-bypassing reload
+        await page.evaluate("() => { window.location.reload(true); }")
+
+        # Wait for navigation to complete
+        try:
+            await page.wait_for_load_state("load", timeout=timeout_ms)
+        except Exception:
+            pass  # Continue even if this times out
+
+        # Additional wait for dynamic content
+        await page.wait_for_timeout(2000)
+
+        # Verify page is actually loaded by checking for expected elements
+        page_ready = await _verify_page_ready(page, timeout_ms // 2)
+        if page_ready:
+            log("    ✓ Hard refresh successful")
+            return True
+
+    except Exception as e:
+        log(f"    ⚠ JavaScript reload failed: {e}")
+
+    # Strategy 2: Full navigation to current URL (fresh request)
+    # This completely tears down and rebuilds the page context
+    try:
+        log("    Trying full navigation refresh...")
+
+        # Navigate away briefly to force complete teardown
+        await page.goto("about:blank", wait_until="load", timeout=5000)
+        await page.wait_for_timeout(500)
+
+        # Navigate back to the portal
+        await page.goto(current_url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+        # Wait for networkidle after DOM is loaded
+        try:
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms // 2)
+        except Exception:
+            pass  # Continue even if networkidle times out
+
+        await page.wait_for_timeout(2000)
+
+        # Verify page is ready
+        page_ready = await _verify_page_ready(page, timeout_ms // 2)
+        if page_ready:
+            log("    ✓ Navigation refresh successful")
+            return True
+
+    except Exception as e:
+        log(f"    ⚠ Navigation refresh failed: {e}")
+
+    # Strategy 3: Last resort - standard reload with extended wait
+    try:
+        log("    Trying standard reload as fallback...")
+        await page.reload(wait_until="load", timeout=timeout_ms)
+        await page.wait_for_timeout(3000)
+        log("    ✓ Standard reload completed")
+        return True
+    except Exception as e:
+        log(f"    ⚠ Standard reload failed: {e}")
+
+    return False
+
+
+async def _verify_page_ready(page, timeout_ms: int = 10000) -> bool:
+    """
+    Verify that the Spring portal page is actually loaded and ready.
+
+    Checks for presence of expected UI elements that indicate
+    the page has fully rendered and is interactive.
+    """
+    # Elements that should be present on a properly loaded portal page
+    ready_indicators = [
+        'table',  # Order table
+        'tr',     # Table rows
+        'button:has-text("Print")',
+        'button:has-text("Download")',
+        '[role="row"]',
+        'input[type="checkbox"]',
+    ]
+
+    try:
+        # Wait a moment for initial render
+        await page.wait_for_timeout(1000)
+
+        # Check if any of the expected elements are visible
+        for selector in ready_indicators:
+            try:
+                element = page.locator(selector).first
+                if await element.is_visible(timeout=timeout_ms // len(ready_indicators)):
+                    return True
+            except Exception:
+                continue
+
+        # Even if specific elements aren't found, check if body has content
+        body_content = await page.locator("body").inner_text()
+        if body_content and len(body_content.strip()) > 100:
+            return True
+
+    except Exception:
+        pass
+
+    return False
+
+
+async def _dismiss_error_modal_and_refresh(page, log: Callable, timeout_ms: int = 30000) -> bool:
+    """
+    Dismiss the "unexpected error" modal and perform a hard refresh.
+
     The Spring portal shows this modal when you progress too fast.
-    Solution: Click the X button, then refresh the page.
-    
+    Solution: Click the X button, then do a proper hard refresh that
+    mimics manually clicking the browser's refresh button.
+
     Returns:
         True if error was dismissed and page refreshed, False otherwise
     """
@@ -738,7 +864,7 @@ async def _dismiss_error_modal_and_refresh(page, log: Callable, timeout_ms: int 
         # The blue X button visible in the screenshot
         'button:near(:text("Error"))',
     ]
-    
+
     dismissed = False
     for selector in close_selectors:
         try:
@@ -751,7 +877,7 @@ async def _dismiss_error_modal_and_refresh(page, log: Callable, timeout_ms: int 
                 break
         except Exception:
             continue
-    
+
     # If we couldn't find the close button, try pressing Escape
     if not dismissed:
         try:
@@ -761,20 +887,11 @@ async def _dismiss_error_modal_and_refresh(page, log: Callable, timeout_ms: int 
             await page.wait_for_timeout(500)
         except Exception:
             pass
-    
+
     if dismissed:
-        # Refresh the page
-        log("    Refreshing page...")
-        try:
-            await page.reload(wait_until="networkidle", timeout=timeout_ms)
-            await page.wait_for_timeout(2000)
-            log("    ✓ Page refreshed")
-            return True
-        except Exception:
-            # Even if networkidle times out, the page may have refreshed
-            await page.wait_for_timeout(2000)
-            return True
-    
+        # Perform a hard refresh that mimics browser refresh button
+        return await _hard_refresh_page(page, log, timeout_ms)
+
     return False
 
 
