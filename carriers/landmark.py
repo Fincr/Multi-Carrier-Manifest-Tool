@@ -108,6 +108,12 @@ class LandmarkCarrier(BaseCarrier):
             'russian federation': 'RU',
             'vietnam': 'VN',
             'viet nam': 'VN',
+            'british virgin islands': 'VG',
+            'democratic republic of congo': 'CD',
+            'namibia': 'NA',
+            'the republic of zambia': 'ZM',
+            'republic of zambia': 'ZM',
+            'zambia': 'ZM',
         }
         for name, code in variations.items():
             if name not in self._iso_map:
