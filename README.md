@@ -2,10 +2,13 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.2.4
+**Version:** 1.2.5
 **Author:** Finlay Crawley
 
 ## What's New in v1.2.x
+
+**v1.2.5** - Landmark ISO country code mappings:
+- Added mappings for British Virgin Islands (VG), Democratic Republic of Congo (CD), Namibia (NA), and Zambia (ZM)
 
 **v1.2.4** - Auto-update on launch:
 - The launcher now automatically pulls the latest changes from Git before starting
