@@ -2,10 +2,14 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.2.5
+**Version:** 1.2.6
 **Author:** Finlay Crawley
 
 ## What's New in v1.2.x
+
+**v1.2.6** - Deutsche Post product selection fix:
+- Fixed portal automation to select "Business Mail" product type instead of defaulting to "Packet"
+- Ensures correct service classification for Deutsche Post manifests
 
 **v1.2.5** - Landmark ISO country code mappings:
 - Added mappings for British Virgin Islands (VG), Democratic Republic of Congo (CD), Namibia (NA), and Zambia (ZM)

@@ -270,23 +270,34 @@ async def _upload_to_deutschepost_portal_impl(
                 except Exception as e:
                     log(f"      ⚠ Reference error: {e}")
                 
-                # Item format dropdown - options are P, G, E, mixed (P/G/E)
-                log(f"    Item format: {item_format}")
+                # Handle dropdowns: Product, Service Level, Item Format
                 try:
-                    # Find the Item Format select - it's the 3rd select (after Product and Service Level)
                     all_selects = page.locator('select:visible')
                     select_count = await all_selects.count()
                     log(f"      Found {select_count} dropdowns")
-                    
-                    # Item Format should be the 3rd select (index 2)
+
                     if select_count >= 3:
+                        # Product dropdown (1st select) - change from "Packet" to "Business Mail"
+                        log("    Setting Product to Business Mail...")
+                        product_select = all_selects.nth(0)
+                        await product_select.click()
+                        await page.wait_for_timeout(200)
+                        await product_select.select_option(label="Business Mail")
+                        await page.wait_for_timeout(200)
+                        log("      ✓ Product set to Business Mail")
+
+                        # Service Level dropdown (2nd select) - leave at default "Priority"
+                        # No action needed, defaults to Priority
+
+                        # Item Format dropdown (3rd select) - options are P, G, E, mixed (P/G/E)
+                        log(f"    Item format: {item_format}")
                         format_select = all_selects.nth(2)
                         await format_select.click()
                         await page.wait_for_timeout(200)
                         await format_select.select_option(label=item_format)
-                        log(f"      ✓ Selected: {item_format}")
+                        log(f"      ✓ Item Format set to: {item_format}")
                 except Exception as e:
-                    log(f"      Format selection error: {e}")
+                    log(f"      Dropdown selection error: {e}")
                 
                 # Total weight (third text input, after contact and reference)
                 log(f"    Total weight: {total_weight} kg")

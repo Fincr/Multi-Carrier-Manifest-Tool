@@ -5,6 +5,15 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.6] - 2026-01-17
+
+### Fixed
+- **Deutsche Post portal automation** - Product dropdown now correctly selects "Business Mail" instead of defaulting to "Packet"
+  - Portal form has three dropdowns: Product, Service Level, and Item Format
+  - Product was previously left at default "Packet" value
+  - Now explicitly sets Product to "Business Mail" before form submission
+  - Ensures manifests are created with correct service classification
+
 ## [1.2.5] - 2026-01-16
 
 ### Added
