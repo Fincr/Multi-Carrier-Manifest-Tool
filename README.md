@@ -2,10 +2,16 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.2.6
+**Version:** 1.2.7
 **Author:** Finlay Crawley
 
 ## What's New in v1.2.x
+
+**v1.2.7** - United Business NZP ETOE carrier support:
+- New carrier for T&D Priority Manifest (Untracked Priority Mail)
+- Format columns: Letters (P format), Flats (G format), Packets (E format)
+- Auto-detects from B3 containing "NZP", "ETOE", or "T&D"
+- Template: `UBL_CP_Pre_Alert_T_D-ETOE.xlsx`
 
 **v1.2.6** - Deutsche Post product selection fix:
 - Fixed portal automation to select "Business Mail" product type instead of defaulting to "Packet"
@@ -52,6 +58,7 @@ Automated population of carrier manifests from internal carrier sheets, with int
 | Air Business | `Air_Business_Ireland.xlsx` | Fixed rows (Ireland only) | ❌ |
 | Mail Americas/Africa | `Mail_America_Africa_2025.xlsx` | Weight-break based (3 sheets) | ❌ |
 | United Business ADS | `United_Business.xlsx` | Weight-band based (single sheet) | ❌ |
+| United Business NZP ETOE | `UBL_CP_Pre_Alert_T_D-ETOE.xlsx` | Format-based (single sheet) | ❌ |
 
 ## Features
 
@@ -230,6 +237,14 @@ Data starts at row 9 with headers at row 8:
 - **Weight Bands**: China (5 bands), Russia (2), Ukraine (2) - uses average item weight
 - **Coverage**: Eastern Europe and Asia regions
 
+### United Business NZP ETOE
+- **Structure**: Single sheet with one row per country
+- **Service**: Untracked Priority Mail only (all records → Priority)
+- **Formats**: Letters (P format, col G-H), Flats (G format, col I-J), Packets (E format, col K-L)
+- **Data Range**: Rows 6-50
+- **Metadata**: Date in B2, PO in B3
+- **Coverage**: Europe and Rest of World regions
+
 ## Adding New Carriers
 
 1. Create new module in `carriers/` (use existing carrier as template)
@@ -297,7 +312,8 @@ Multi Carrier Manifest Automation/
 │   ├── deutschepost_portal.py  # Deutsche Post portal automation
 │   ├── airbusiness.py       # Air Business Ireland handler
 │   ├── mail_americas.py     # Mail Americas/Africa handler
-│   └── unitedbusiness.py    # United Business ADS handler
+│   ├── unitedbusiness.py    # United Business ADS handler
+│   └── unitedbusiness_nzp.py # United Business NZP ETOE handler
 ├── core/
 │   ├── __init__.py
 │   ├── engine.py            # Processing engine
@@ -311,6 +327,7 @@ Multi Carrier Manifest Automation/
 │   ├── Air_Business_Ireland.xlsx
 │   ├── Mail_America_Africa_2025.xlsx
 │   ├── United_Business.xlsx
+│   ├── UBL_CP_Pre_Alert_T_D-ETOE.xlsx
 │   └── UploadCodeList_-_Citipost.xls
 ├── tools/
 │   ├── SumatraPDF.exe       # PDF printer (download separately)
