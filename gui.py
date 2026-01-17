@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.2.7"
+__version__ = "1.3.1"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -1005,7 +1005,11 @@ class ManifestToolApp:
         self.last_carrier_name = None  # Track which carrier was last processed
         self.last_po_number = None  # Track PO number for Spring upload
         self.last_deutschepost_data = None  # Track Deutsche Post extracted data for portal
-        
+
+        # Batch processing state
+        self.batch_files = []  # List of (filepath, carrier_name) tuples
+        self.batch_results = []  # List of batch result dicts
+
         self.create_widgets()
         self.check_templates()
     
@@ -1136,7 +1140,15 @@ class ManifestToolApp:
             command=self.open_settings
         )
         self.settings_button.grid(row=0, column=3, padx=5)
-        
+
+        # Batch Process button
+        self.batch_button = ttk.Button(
+            button_frame,
+            text="Batch Process Folder...",
+            command=self.start_batch_mode
+        )
+        self.batch_button.grid(row=0, column=4, padx=5)
+
         # Progress bar
         self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
         self.progress.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(0, 10))
@@ -1221,7 +1233,329 @@ class ManifestToolApp:
         dirpath = filedialog.askdirectory(title="Select Output Folder")
         if dirpath:
             self.output_dir_path.set(dirpath)
-    
+
+    # =========================================================================
+    # BATCH PROCESSING METHODS
+    # =========================================================================
+
+    def detect_carrier_from_file(self, filepath: str) -> tuple:
+        """
+        Check if file is a valid carrier sheet by reading B3 cell.
+        Returns (is_valid, carrier_name_or_error_message)
+        """
+        from openpyxl import load_workbook
+        from carriers import get_carrier
+
+        if not filepath.lower().endswith(('.xlsx', '.xls')):
+            return False, "Not an Excel file"
+
+        try:
+            wb = load_workbook(filepath, data_only=True, read_only=True)
+            ws = wb.active
+            carrier_name = str(ws['B3'].value or "").strip()
+            wb.close()
+
+            if not carrier_name:
+                return False, "No carrier name in B3"
+
+            # Validate carrier is known
+            get_carrier(carrier_name)
+            return True, carrier_name
+        except ValueError as e:
+            return False, str(e)
+        except Exception as e:
+            return False, f"Error reading file: {str(e)}"
+
+    def start_batch_mode(self):
+        """Open folder dialog and scan for carrier sheets."""
+        # Validate output directory first
+        output_dir = self.output_dir_path.get()
+        if not output_dir or not os.path.isdir(output_dir):
+            messagebox.showerror("Error", "Please select a valid output folder first.")
+            return
+
+        # Open folder dialog
+        folder = filedialog.askdirectory(title="Select Folder with Carrier Sheets")
+        if not folder:
+            return
+
+        # Scan folder for Excel files
+        self.log(f"\nScanning folder: {folder}")
+        excel_files = []
+        for f in sorted(os.listdir(folder)):
+            if f.lower().endswith(('.xlsx', '.xls')) and not f.startswith('~$'):
+                excel_files.append(os.path.join(folder, f))
+
+        if not excel_files:
+            messagebox.showinfo("No Files", "No Excel files found in folder.")
+            return
+
+        # Detect carriers for each file
+        self.batch_files = []
+        skipped = []
+        for filepath in excel_files:
+            is_valid, result = self.detect_carrier_from_file(filepath)
+            if is_valid:
+                self.batch_files.append((filepath, result))
+                self.log(f"  + {os.path.basename(filepath)} - {result}")
+            else:
+                skipped.append((os.path.basename(filepath), result))
+                self.log(f"  - {os.path.basename(filepath)} - {result}")
+
+        if not self.batch_files:
+            messagebox.showinfo("No Valid Files", "No valid carrier sheets found.")
+            return
+
+        # Check for duplicate carriers (same carrier type appearing multiple times)
+        carrier_counts = {}
+        for filepath, carrier_name in self.batch_files:
+            # Normalize carrier name for comparison (the resolved carrier type)
+            try:
+                from carriers import get_carrier
+                carrier_instance = get_carrier(carrier_name)
+                carrier_type = type(carrier_instance).__name__
+            except ValueError:
+                carrier_type = carrier_name
+
+            if carrier_type not in carrier_counts:
+                carrier_counts[carrier_type] = []
+            carrier_counts[carrier_type].append(os.path.basename(filepath))
+
+        # Find duplicates
+        duplicates = {k: v for k, v in carrier_counts.items() if len(v) > 1}
+        if duplicates:
+            dup_msg = "Duplicate carrier sheets detected!\n\n"
+            dup_msg += "Each carrier type should only appear once per batch.\n\n"
+            for carrier_type, files in duplicates.items():
+                dup_msg += f"{carrier_type}:\n"
+                for f in files:
+                    dup_msg += f"  - {f}\n"
+            dup_msg += "\nPlease remove duplicate files and try again."
+            messagebox.showerror("Duplicate Carriers", dup_msg)
+            return
+
+        # Confirm with user
+        msg = f"Found {len(self.batch_files)} valid carrier sheet(s):\n\n"
+        for fp, carrier in self.batch_files[:10]:  # Show first 10
+            msg += f"  {os.path.basename(fp)} ({carrier})\n"
+        if len(self.batch_files) > 10:
+            msg += f"... and {len(self.batch_files) - 10} more\n"
+        if skipped:
+            msg += f"\n{len(skipped)} file(s) skipped (invalid/unknown carrier)"
+        msg += "\n\nProceed with batch processing?"
+
+        if messagebox.askyesno("Confirm Batch Processing", msg):
+            self.start_batch_processing()
+
+    def start_batch_processing(self):
+        """Start processing all detected batch files."""
+        if not self.batch_files:
+            return
+
+        # Disable buttons during processing
+        self.process_button.config(state='disabled')
+        self.batch_button.config(state='disabled')
+        self.print_button.config(state='disabled')
+        self.upload_button.config(state='disabled')
+
+        # Start progress bar
+        self.progress.start()
+        self.batch_results = []
+
+        # Run in background thread
+        thread = threading.Thread(
+            target=self.run_batch_processing,
+            daemon=True
+        )
+        thread.start()
+
+    def run_batch_processing(self):
+        """Background thread for batch processing."""
+        output_dir = self.output_dir_path.get()
+        total = len(self.batch_files)
+
+        for index, (filepath, carrier_name) in enumerate(self.batch_files):
+            filename = os.path.basename(filepath)
+
+            # Update status (capture index and filename in closure)
+            self.root.after(0, lambda i=index, f=filename, t=total:
+                self.status_var.set(f"Batch: Processing {i+1}/{t} - {f}"))
+
+            self.root.after(0, self.log, f"\n{'='*50}")
+            self.root.after(0, self.log, f"BATCH FILE {index+1}/{total}: {filename}")
+            self.root.after(0, self.log, f"Carrier: {carrier_name}")
+            self.root.after(0, self.log, f"{'='*50}")
+
+            try:
+                # Create engine and process
+                engine = ManifestEngine(self.template_dir, output_dir)
+                engine.set_log_callback(lambda msg: self.root.after(0, self.log, msg))
+
+                results = engine.process_sheet(filepath, max_errors=self.config.max_errors_before_stop)
+
+                if results and results[0].success:
+                    # Handle auto-print (skip for Spring/Landmark - portal handles it)
+                    is_spring = 'spring' in carrier_name.lower()
+                    is_landmark = 'landmark' in carrier_name.lower()
+                    is_deutschepost = 'deutsche' in carrier_name.lower()
+
+                    if self.auto_print_var.get() and not is_spring and not is_landmark:
+                        self._do_print([results[0].output_file])
+
+                    # Handle auto-upload
+                    if self.auto_upload_var.get():
+                        self._handle_batch_upload(results, carrier_name, output_dir, is_spring, is_landmark, is_deutschepost)
+
+                    self.batch_results.append({
+                        'file': filename,
+                        'carrier': carrier_name,
+                        'success': True,
+                        'output': results[0].output_file
+                    })
+                else:
+                    self.batch_results.append({
+                        'file': filename,
+                        'carrier': carrier_name,
+                        'success': False,
+                        'error': 'Processing failed'
+                    })
+
+            except Exception as e:
+                self.root.after(0, self.log, f"ERROR: {str(e)}")
+                self.batch_results.append({
+                    'file': filename,
+                    'carrier': carrier_name,
+                    'success': False,
+                    'error': str(e)
+                })
+
+        # Complete
+        self.root.after(0, self.on_batch_complete)
+
+    def _handle_batch_upload(self, results, carrier_name, output_dir, is_spring, is_landmark, is_deutschepost):
+        """Handle auto-upload for a single batch file."""
+        if is_spring:
+            self._upload_spring_blocking(results[0].output_file, results[0].po_number, output_dir)
+        elif is_landmark:
+            files = [results[0].output_file]
+            if results[0].additional_files:
+                files.extend(results[0].additional_files)
+            self._upload_landmark_blocking(files, results[0].po_number, output_dir)
+        elif is_deutschepost and results[0].deutschepost_data:
+            self._upload_deutschepost_blocking(results[0], output_dir)
+
+    def _upload_spring_blocking(self, output_file, po_number, output_dir):
+        """Synchronous Spring upload for batch mode."""
+        from carriers.spring_portal import run_spring_upload_robust
+        try:
+            success, msg, pdf_downloaded = run_spring_upload_robust(
+                output_file, po_number, output_dir,
+                self.auto_print_var.get(),
+                lambda m: self.root.after(0, self.log, m)
+            )
+            self.root.after(0, self.log, f"Spring upload: {'OK' if success else 'FAILED'}")
+
+            # Delete upload file if PDF was successfully downloaded
+            if success and pdf_downloaded:
+                try:
+                    os.remove(output_file)
+                    self.root.after(0, self.log, f"  ✓ Cleaned up upload file: {os.path.basename(output_file)}")
+                except Exception as e:
+                    self.root.after(0, self.log, f"  ⚠ Could not delete upload file {os.path.basename(output_file)}: {e}")
+            elif success:
+                self.root.after(0, self.log, "  ⚠ Upload file retained (PDF download incomplete)")
+        except Exception as e:
+            self.root.after(0, self.log, f"Spring upload error: {e}")
+
+    def _upload_landmark_blocking(self, files, po_number, output_dir):
+        """Synchronous Landmark upload for batch mode."""
+        # Run async function in new event loop
+        loop = asyncio.new_event_loop()
+        try:
+            success, message, pdf_downloaded = loop.run_until_complete(
+                upload_to_landmark_portal(files, po_number, output_dir,
+                                          self.auto_print_var.get(),
+                                          lambda m: self.root.after(0, self.log, m))
+            )
+            self.root.after(0, self.log, f"Landmark upload: {'OK' if success else 'FAILED'}")
+
+            # Delete upload CSV files if PDFs were successfully downloaded
+            if success and pdf_downloaded:
+                for filepath in files:
+                    try:
+                        os.remove(filepath)
+                        self.root.after(0, self.log, f"  ✓ Cleaned up upload file: {os.path.basename(filepath)}")
+                    except Exception as e:
+                        self.root.after(0, self.log, f"  ⚠ Could not delete upload file {os.path.basename(filepath)}: {e}")
+            elif success:
+                self.root.after(0, self.log, "  ⚠ Upload files retained (PDF download incomplete)")
+        except Exception as e:
+            self.root.after(0, self.log, f"Landmark upload error: {e}")
+        finally:
+            loop.close()
+
+    def _upload_deutschepost_blocking(self, result, output_dir):
+        """Synchronous Deutsche Post upload for batch mode."""
+        from carriers.deutschepost_portal import run_deutschepost_upload
+        from carriers.deutschepost import DeutschePostCarrier
+        try:
+            data = result.deutschepost_data
+            carrier = DeutschePostCarrier()
+            item_format = carrier.get_item_format(data.formats)
+
+            success, msg = run_deutschepost_upload(
+                po_number=data.po_number,
+                total_weight=data.total_weight,
+                item_format=item_format,
+                output_dir=output_dir,
+                auto_print=self.auto_print_var.get(),
+                log_callback=lambda m: self.root.after(0, self.log, m)
+            )
+            self.root.after(0, self.log, f"Deutsche Post upload: {'OK' if success else 'FAILED'}")
+        except Exception as e:
+            self.root.after(0, self.log, f"Deutsche Post upload error: {e}")
+
+    def on_batch_complete(self):
+        """Handle batch processing completion."""
+        self.progress.stop()
+        self.process_button.config(state='normal')
+        self.batch_button.config(state='normal')
+
+        # Calculate summary
+        successful = sum(1 for r in self.batch_results if r['success'])
+        failed = len(self.batch_results) - successful
+
+        # Log summary
+        self.log(f"\n{'='*50}")
+        self.log("BATCH PROCESSING COMPLETE")
+        self.log(f"{'='*50}")
+        self.log(f"Total: {len(self.batch_results)}")
+        self.log(f"Successful: {successful}")
+        self.log(f"Failed: {failed}")
+
+        for r in self.batch_results:
+            status = "OK" if r['success'] else "FAILED"
+            self.log(f"  [{status}] {r['file']} ({r['carrier']})")
+            if not r['success']:
+                self.log(f"      Error: {r.get('error', 'Unknown')}")
+
+        self.status_var.set(f"Batch complete: {successful} succeeded, {failed} failed")
+
+        # Show summary dialog
+        messagebox.showinfo(
+            "Batch Processing Complete",
+            f"Processed {len(self.batch_results)} file(s)\n\n"
+            f"Successful: {successful}\n"
+            f"Failed: {failed}"
+        )
+
+        # Clear batch state
+        self.batch_files = []
+
+    # =========================================================================
+    # END BATCH PROCESSING METHODS
+    # =========================================================================
+
     def open_settings(self):
         """Open settings dialog."""
         dialog = SettingsDialog(self.root, self.config)
@@ -1298,8 +1632,8 @@ Features:
         # === Supported Carriers Tab ===
         carriers_tab = ttk.Frame(notebook, padding="10")
         notebook.add(carriers_tab, text="Supported Carriers")
-        
-        carriers_text = """Supported Carriers:
+
+        carriers_content = """Supported Carriers:
 
 • Asendia UK Business Mail (2025)
    Template: Asendia_UK_Business_Mail_2025.xlsx
@@ -1321,17 +1655,23 @@ Features:
 • Deutsche Post
    Portal: Automatic registration and manifest download
 
-• Air Business (Ireland only)
+• Air Business (Ireland / An Post)
    Template: Air_Business_Ireland.xlsx
 
 • Mail Americas/Africa
    Template: Mail_America_Africa_2025.xlsx
 
 • United Business ADS
-   Template: United_Business.xlsx"""
-        
-        carriers_label = ttk.Label(carriers_tab, text=carriers_text, justify='left')
-        carriers_label.pack(anchor='w')
+   Template: United_Business.xlsx
+
+• United Business NZP ETOE
+   Template: UBL_CP_Pre_Alert_T_D-ETOE.xlsx
+"""
+
+        carriers_text = scrolledtext.ScrolledText(carriers_tab, wrap='word', font=('Consolas', 9))
+        carriers_text.pack(fill='both', expand=True)
+        carriers_text.insert('1.0', carriers_content)
+        carriers_text.config(state='disabled')
         
         # === Changelog Tab ===
         changelog_tab = ttk.Frame(notebook, padding="10")

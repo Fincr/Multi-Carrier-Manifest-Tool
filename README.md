@@ -2,8 +2,22 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.2.7
+**Version:** 1.3.1
 **Author:** Finlay Crawley
+
+## What's New in v1.3.x
+
+**v1.3.1** - Batch processing improvements:
+- Duplicate carrier detection prevents processing multiple sheets of the same carrier type
+- Jersey Post files are automatically excluded from batch processing
+- Upload file cleanup now works correctly in batch mode (Spring/Landmark)
+- Scrollable "Supported Carriers" tab for better display on smaller screens
+
+**v1.3.0** - Batch Processing Mode:
+- New "Batch Process Folder..." button to process multiple carrier sheets at once
+- Auto-detects valid carrier sheets in selected folder
+- Applies auto-print and auto-upload settings to all files
+- Summary dialog shows success/failure counts
 
 ## What's New in v1.2.x
 

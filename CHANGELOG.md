@@ -5,6 +5,31 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-01-17
+
+### Added
+- **Batch Processing Improvements**
+  - Duplicate carrier detection - prevents processing multiple sheets of the same carrier type in one batch
+  - Jersey Post exclusion - files containing "Jersey Post" in carrier name are automatically skipped
+  - Scrollable "Supported Carriers" tab in About dialog for better display on smaller screens
+
+### Fixed
+- **Upload file cleanup in batch mode** - Spring (.xlsx) and Landmark (.csv) upload files are now deleted after successful portal upload with PDF download, matching non-batch behavior
+- Upload files are retained if PDF download fails, for debugging purposes
+
+## [1.3.0] - 2026-01-17
+
+### Added
+- **Batch Processing Mode** - Process multiple carrier sheets from a folder in one operation
+  - New "Batch Process Folder..." button in the GUI
+  - Auto-detects valid carrier sheets in selected folder (Excel files with recognized carrier in B3)
+  - Processes files sequentially, top to bottom (alphabetical order)
+  - Shows scan preview with detected carriers before processing
+  - Skips invalid files with clear error messages in log
+  - Applies output folder, auto-print, and auto-upload settings to all files
+  - Displays summary dialog with success/failure counts on completion
+  - Full error handling - continues to next file if one fails
+
 ## [1.2.7] - 2026-01-17
 
 ### Added
