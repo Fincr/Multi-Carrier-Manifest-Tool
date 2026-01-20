@@ -37,9 +37,12 @@ def get_carrier(carrier_name: str) -> BaseCarrier:
     # Normalise: lowercase, strip whitespace
     carrier_lower = carrier_name.lower().strip()
 
-    # Explicitly exclude Jersey Post (not a supported carrier)
+    # Explicitly exclude unsupported carriers
     if 'jersey post' in carrier_lower:
         raise ValueError(f"Jersey Post is not a supported carrier: {carrier_name}")
+
+    if 'publications' in carrier_lower:
+        raise ValueError(f"Asendia Publications is not a supported carrier: {carrier_name}")
     
     # Check for year-specific Asendia matches
     if 'asendia' in carrier_lower:
