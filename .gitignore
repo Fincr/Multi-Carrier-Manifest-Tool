@@ -104,3 +104,13 @@ ManifestTool_Deploy/
 # Tools - Local Settings
 # ============================================
 tools/SumatraPDF-settings.txt
+
+# ============================================
+# Templates - Carrier Manifests (Proprietary)
+# ============================================
+# These manifest templates are carrier-specific and should not be tracked in git.
+# Users must obtain their own copies from carriers or internal sources.
+# The pre_alert_email.html template IS tracked as it's custom-built.
+templates/*.xlsx
+templates/*.xls
+!templates/pre_alert_email.html

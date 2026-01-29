@@ -5,6 +5,36 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-23
+
+### Added
+- **Pre-Alert Email Automation** - New "Pre-Alerts" tab for sending manifest notification emails
+  - Dedicated tab in the main UI alongside "Manifest Processing"
+  - Automatically registers processed manifests for pre-alert carriers (Asendia, Deutsche Post, PostNord, United Business)
+  - Configurable recipients (TO and CC) per carrier via GUI settings dialog
+  - Customizable email subject templates with placeholders: {carrier}, {date}, {po_number}
+  - Professional HTML email template with dispatch date and PO number
+  - Send tracking prevents duplicate emails (remembers what was sent today)
+  - "Already sent" warning with option to re-send if needed
+  - Batch send with summary: select multiple manifests and send all at once
+  - Detailed send log with success/failure status
+  - Uses Outlook desktop client via COM automation (emails appear in Sent folder)
+  - Configuration persists to `pre_alert_config.json`
+  - Send history tracked in `pre_alert_log.json`
+
+### Changed
+- Main UI now uses tabbed interface (Notebook) for better organization
+- Window layout updated: title bar at top, tabs below
+
+### Technical Details
+- New `pre_alerts/` module with:
+  - `config_manager.py` - Carrier email configuration with JSON persistence
+  - `email_sender.py` - Outlook COM integration for sending HTML emails
+  - `send_tracker.py` - Daily send tracking with automatic cleanup
+  - `pre_alert_tab.py` - Full Tkinter tab UI with configuration dialogs
+- Email template stored in `templates/pre_alert_email.html`
+- Carrier name matching handles variations (e.g., "Asendia 2026" → "Asendia")
+
 ## [1.3.1] - 2026-01-17
 
 ### Added

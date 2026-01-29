@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.3.1"
+__version__ = "1.4.0"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -35,6 +35,8 @@ if __name__ == "__main__":
 from core.engine import ManifestEngine
 from core.config import get_config, save_config, AppConfig, get_available_printers
 from core.credentials import get_landmark_credentials
+from pre_alerts.pre_alert_tab import PreAlertTab
+from pre_alerts.config_manager import load_pre_alert_config
 
 
 def get_portal_timeout_ms() -> int:
@@ -1015,30 +1017,45 @@ class ManifestToolApp:
     
     def create_widgets(self):
         """Build the UI."""
-        # Main frame
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky="nsew")
+        # Main container
+        container = ttk.Frame(self.root, padding="10")
+        container.grid(row=0, column=0, sticky="nsew")
         
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(1, weight=1)
         
-        # Title
+        # Title bar with title and about button
+        title_frame = ttk.Frame(container)
+        title_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        title_frame.columnconfigure(0, weight=1)
+        
         title_label = ttk.Label(
-            main_frame, 
+            title_frame, 
             text="Multi-Carrier Manifest Tool", 
             font=('Helvetica', 16, 'bold')
         )
-        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
+        title_label.grid(row=0, column=0, sticky="w")
         
         # About button (top right, small)
         self.about_button = ttk.Button(
-            main_frame,
+            title_frame,
             text="ℹ",
             width=3,
             command=self.show_about
         )
-        self.about_button.grid(row=0, column=2, sticky="e", pady=(0, 10))
+        self.about_button.grid(row=0, column=1, sticky="e")
+        
+        # Create notebook (tabbed interface)
+        self.notebook = ttk.Notebook(container)
+        self.notebook.grid(row=1, column=0, sticky="nsew")
+        
+        # Tab 1: Manifest Processing
+        main_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(main_frame, text="Manifest Processing")
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(5, weight=1)
         
         # File selection frame
         file_frame = ttk.LabelFrame(main_frame, text="File Selection", padding="10")
@@ -1177,6 +1194,14 @@ class ManifestToolApp:
             anchor='w'
         )
         status_bar.grid(row=6, column=0, columnspan=3, sticky="ew")
+        
+        # Tab 2: Pre-Alerts
+        pre_alert_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(pre_alert_frame, text="Pre-Alerts")
+        
+        # Create pre-alert tab component
+        self.pre_alert_tab = PreAlertTab(pre_alert_frame, self.app_dir)
+        self.pre_alert_tab.set_log_callback(self.log)
     
     def check_templates(self):
         """Check that template directory exists and has templates."""
@@ -1864,6 +1889,14 @@ Features:
             if (self.auto_upload_var.get() and is_deutschepost):
                 msg += "\n\nUpload to Deutsche Post portal initiated."
             messagebox.showinfo("Success", msg)
+        
+        # Add to pre-alerts tab if it's a pre-alert carrier
+        if results and results[0].success and results[0].output_file:
+            self.pre_alert_tab.add_manifest(
+                carrier_name=results[0].carrier_name,
+                po_number=results[0].po_number,
+                manifest_path=results[0].output_file
+            )
     
     def on_processing_error(self, error_msg: str):
         """Handle processing error."""

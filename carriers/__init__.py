@@ -44,6 +44,12 @@ def get_carrier(carrier_name: str) -> BaseCarrier:
     if 'publications' in carrier_lower:
         raise ValueError(f"Asendia Publications is not a supported carrier: {carrier_name}")
     
+    if 'mmp parcel' in carrier_lower:
+        raise ValueError(f"PostNord MMP Parcel is not a supported carrier (use standard PostNord): {carrier_name}")
+    
+    if 'lettershop' in carrier_lower:
+        raise ValueError(f"Lettershop is not a supported carrier: {carrier_name}")
+    
     # Check for year-specific Asendia matches
     if 'asendia' in carrier_lower:
         if '2025' in carrier_name:

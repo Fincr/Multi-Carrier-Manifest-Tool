@@ -74,6 +74,38 @@ Automated population of carrier manifests from internal carrier sheets, with int
 | United Business ADS | `United_Business.xlsx` | Weight-band based (single sheet) | ❌ |
 | United Business NZP ETOE | `UBL_CP_Pre_Alert_T_D-ETOE.xlsx` | Format-based (single sheet) | ❌ |
 
+## Template Naming Conventions
+
+The tool looks for specific template filenames in the `templates/` folder. These templates are **not included in the repository** as they are proprietary carrier documents. You must obtain them from your carrier contacts or internal sources.
+
+### Required Template Files
+
+| Carrier | Required Filename | Source |
+|---------|-------------------|--------|
+| Asendia 2026 | `Asendia_UK_Business_2026_Mail_Manifest.xlsx` | Asendia UK |
+| Asendia 2025 | `Asendia_UK_Business_Mail_2025.xlsx` | Asendia UK |
+| PostNord | `PostNord.xlsx` | PostNord |
+| Spring Global | `MailOrderTemplate.xlsx` | Spring GDS Portal |
+| Landmark Global | `UploadCodeList_-_Citipost.xls` | bpost Business Portal |
+| Air Business Ireland | `Air_Business_Ireland.xlsx` | Air Business |
+| Mail Americas/Africa | `Mail_America_Africa_2025.xlsx` | Mail Americas |
+| United Business ADS | `United_Business.xlsx` | United Business |
+| United Business NZP | `UBL_CP_Pre_Alert_T_D-ETOE.xlsx` | United Business |
+
+### Notes on Template Files
+
+- **Exact filenames required**: The tool matches these exact filenames when loading templates
+- **Year-specific templates**: Some carriers (Asendia, Mail Americas) release new templates each year. Update the filename in the carrier module when switching to a new year's template
+- **Landmark format**: Note this uses `.xls` format (Excel 97-2003), not `.xlsx`
+- **Pre-alert email**: The `pre_alert_email.html` template IS included in the repository as it's custom-built for the tool
+
+### Adding Templates
+
+1. Obtain the blank manifest template from your carrier contact
+2. Rename it to match the exact filename shown above
+3. Place it in the `templates/` folder
+4. The tool will automatically use it when processing that carrier
+
 ## Features
 
 ### Core Functionality
@@ -333,7 +365,7 @@ Multi Carrier Manifest Automation/
 │   ├── engine.py            # Processing engine
 │   ├── config.py            # Configuration management
 │   └── credentials.py       # Portal credential loading (.env)
-├── templates/
+├── templates/                          # NOT TRACKED - obtain from carriers
 │   ├── Asendia_UK_Business_2026_Mail_Manifest.xlsx
 │   ├── Asendia_UK_Business_Mail_2025.xlsx
 │   ├── PostNord.xlsx
@@ -342,7 +374,8 @@ Multi Carrier Manifest Automation/
 │   ├── Mail_America_Africa_2025.xlsx
 │   ├── United_Business.xlsx
 │   ├── UBL_CP_Pre_Alert_T_D-ETOE.xlsx
-│   └── UploadCodeList_-_Citipost.xls
+│   ├── UploadCodeList_-_Citipost.xls
+│   └── pre_alert_email.html            # TRACKED - custom email template
 ├── tools/
 │   ├── SumatraPDF.exe       # PDF printer (download separately)
 │   └── README.md            # Setup instructions

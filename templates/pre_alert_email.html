@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            margin-bottom: 20px;
+        }
+        .content {
+            margin-bottom: 20px;
+        }
+        .details {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px 20px;
+            margin: 20px 0;
+        }
+        .details table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .details td {
+            padding: 8px 0;
+            vertical-align: top;
+        }
+        .details td:first-child {
+            font-weight: 600;
+            color: #495057;
+            width: 130px;
+        }
+        .details td:last-child {
+            color: #212529;
+        }
+        .attachment-note {
+            background-color: #e7f3ff;
+            border: 1px solid #b6d4fe;
+            border-radius: 6px;
+            padding: 12px 15px;
+            margin: 20px 0;
+            font-size: 13px;
+            color: #0a58ca;
+        }
+        .attachment-note strong {
+            color: #084298;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+            color: #6c757d;
+        }
+        .signature {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <p>Dear Team,</p>
+        </div>
+        
+        <div class="content">
+            <p>Please find attached today's manifest for <strong>{carrier}</strong>.</p>
+            
+            <div class="details">
+                <table>
+                    <tr>
+                        <td>Dispatch Date:</td>
+                        <td>{date}</td>
+                    </tr>
+                    <tr>
+                        <td>PO Number:</td>
+                        <td>{po_number}</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="attachment-note">
+                <strong>📎 Attachment:</strong> Manifest file attached to this email
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p class="signature">Kind regards,<br>
+            <strong>{sender_name}</strong></p>
+        </div>
+    </div>
+</body>
+</html>

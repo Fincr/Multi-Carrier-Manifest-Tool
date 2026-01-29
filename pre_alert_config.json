@@ -1,0 +1,34 @@
+{
+  "carriers": {
+    "Asendia": {
+      "enabled": true,
+      "recipients": [
+        "fcrawley@citipost.co.uk"
+      ],
+      "cc": [
+        "fcrawley@citipost.co.uk"
+      ],
+      "subject_template": "Pre-Alert: Asendia UK Business - {date}"
+    },
+    "Deutsche Post": {
+      "enabled": true,
+      "recipients": [],
+      "cc": [],
+      "subject_template": "Pre-Alert: Deutsche Post - {date}"
+    },
+    "PostNord": {
+      "enabled": true,
+      "recipients": [],
+      "cc": [],
+      "subject_template": "Pre-Alert: PostNord - {date}"
+    },
+    "United Business": {
+      "enabled": true,
+      "recipients": [],
+      "cc": [],
+      "subject_template": "Pre-Alert: United Business - {date}"
+    }
+  },
+  "sender_name": "Finlay Crawley",
+  "email_template_path": "templates/pre_alert_email.html"
+}
