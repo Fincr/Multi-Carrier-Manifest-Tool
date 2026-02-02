@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -1222,6 +1222,8 @@ class ManifestToolApp:
             'PostNord.xlsx': 'PostNord',
             'UploadCodeList_-_Citipost.xls': 'Landmark Global',
             'United_Business.xlsx': 'United Business ADS',
+            'UBL_CP_Pre_Alert_T_D-ETOE.xlsx': 'United Business NZP ETOE',
+            'UBL_CP_Pre_Alert_SPL-ETOE.xlsx': 'United Business SPL ETOE',
         }
         
         templates = [f for f in os.listdir(self.template_dir) if f.endswith(('.xlsx', '.xls'))]
@@ -1691,6 +1693,9 @@ Features:
 
 • United Business NZP ETOE
    Template: UBL_CP_Pre_Alert_T_D-ETOE.xlsx
+
+• United Business SPL ETOE
+   Template: UBL_CP_Pre_Alert_SPL-ETOE.xlsx
 """
 
         carriers_text = scrolledtext.ScrolledText(carriers_tab, wrap='word', font=('Consolas', 9))

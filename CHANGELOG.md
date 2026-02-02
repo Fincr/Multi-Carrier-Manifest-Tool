@@ -5,6 +5,18 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-02-02
+
+### Added
+- **United Business SPL ETOE Carrier Support**
+  - New carrier for SPL ETOE Priority Manifest (Untracked Priority Mail)
+  - Structurally identical to NZP ETOE with different country list (23 countries)
+  - Format columns: Letters (P), Flats (G), Packets (E)
+  - Simple single-row-per-country structure (rows 6-33)
+  - Template: `UBL_CP_Pre_Alert_SPL-ETOE.xlsx`
+  - Auto-detects from B3 containing "SPL"
+  - Country mapping for Korea, North Macedonia, Taiwan variations
+
 ## [1.4.0] - 2026-01-23
 
 ### Added

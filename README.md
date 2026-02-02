@@ -2,8 +2,21 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.3.1
+**Version:** 1.4.1
 **Author:** Finlay Crawley
+
+## What's New in v1.4.x
+
+**v1.4.1** - United Business SPL ETOE carrier support:
+- New carrier for SPL ETOE Priority Manifest (Untracked Priority Mail)
+- Structurally identical to NZP ETOE with different country list (23 countries)
+- Auto-detects from B3 containing "SPL"
+- Template: `UBL_CP_Pre_Alert_SPL-ETOE.xlsx`
+
+**v1.4.0** - Pre-Alert Email Automation:
+- New "Pre-Alerts" tab for sending manifest notification emails via Outlook
+- Configurable recipients per carrier, customizable subject templates
+- Batch send with duplicate tracking and send log
 
 ## What's New in v1.3.x
 
@@ -73,6 +86,7 @@ Automated population of carrier manifests from internal carrier sheets, with int
 | Mail Americas/Africa | `Mail_America_Africa_2025.xlsx` | Weight-break based (3 sheets) | ❌ |
 | United Business ADS | `United_Business.xlsx` | Weight-band based (single sheet) | ❌ |
 | United Business NZP ETOE | `UBL_CP_Pre_Alert_T_D-ETOE.xlsx` | Format-based (single sheet) | ❌ |
+| United Business SPL ETOE | `UBL_CP_Pre_Alert_SPL-ETOE.xlsx` | Format-based (single sheet) | ❌ |
 
 ## Template Naming Conventions
 
@@ -91,6 +105,7 @@ The tool looks for specific template filenames in the `templates/` folder. These
 | Mail Americas/Africa | `Mail_America_Africa_2025.xlsx` | Mail Americas |
 | United Business ADS | `United_Business.xlsx` | United Business |
 | United Business NZP | `UBL_CP_Pre_Alert_T_D-ETOE.xlsx` | United Business |
+| United Business SPL | `UBL_CP_Pre_Alert_SPL-ETOE.xlsx` | United Business |
 
 ### Notes on Template Files
 
@@ -291,6 +306,14 @@ Data starts at row 9 with headers at row 8:
 - **Metadata**: Date in B2, PO in B3
 - **Coverage**: Europe and Rest of World regions
 
+### United Business SPL ETOE
+- **Structure**: Single sheet with one row per country (identical layout to NZP ETOE)
+- **Service**: Untracked Priority Mail only (all records → Priority)
+- **Formats**: Letters (P format, col G-H), Flats (G format, col I-J), Packets (E format, col K-L)
+- **Data Range**: Rows 6-33
+- **Metadata**: Date in B2, PO in B3
+- **Coverage**: 23 countries across Europe (8) and Rest of World (15)
+
 ## Adding New Carriers
 
 1. Create new module in `carriers/` (use existing carrier as template)
@@ -359,7 +382,8 @@ Multi Carrier Manifest Automation/
 │   ├── airbusiness.py       # Air Business Ireland handler
 │   ├── mail_americas.py     # Mail Americas/Africa handler
 │   ├── unitedbusiness.py    # United Business ADS handler
-│   └── unitedbusiness_nzp.py # United Business NZP ETOE handler
+│   ├── unitedbusiness_nzp.py # United Business NZP ETOE handler
+│   └── unitedbusiness_spl.py # United Business SPL ETOE handler
 ├── core/
 │   ├── __init__.py
 │   ├── engine.py            # Processing engine
@@ -374,6 +398,7 @@ Multi Carrier Manifest Automation/
 │   ├── Mail_America_Africa_2025.xlsx
 │   ├── United_Business.xlsx
 │   ├── UBL_CP_Pre_Alert_T_D-ETOE.xlsx
+│   ├── UBL_CP_Pre_Alert_SPL-ETOE.xlsx
 │   ├── UploadCodeList_-_Citipost.xls
 │   └── pre_alert_email.html            # TRACKED - custom email template
 ├── tools/

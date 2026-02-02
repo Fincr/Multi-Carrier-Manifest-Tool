@@ -12,6 +12,7 @@ from .landmark import LandmarkCarrier
 from .deutschepost import DeutschePostCarrier
 from .unitedbusiness import UnitedBusinessCarrier
 from .unitedbusiness_nzp import UnitedBusinessNZPCarrier
+from .unitedbusiness_spl import UnitedBusinessSPLCarrier
 
 # Registry of available carriers
 CARRIER_REGISTRY = {
@@ -25,6 +26,7 @@ CARRIER_REGISTRY = {
     'Deutsche Post': DeutschePostCarrier,
     'United Business ADS': UnitedBusinessCarrier,
     'United Business NZP ETOE': UnitedBusinessNZPCarrier,
+    'United Business SPL ETOE': UnitedBusinessSPLCarrier,
 }
 
 
@@ -84,7 +86,10 @@ def get_carrier(carrier_name: str) -> BaseCarrier:
     
     # Check for United Business variants
     if 'united business' in carrier_lower or 'ubl' in carrier_lower:
-        # Check for NZP ETOE variant first (more specific)
+        # Check for SPL ETOE variant
+        if 'spl' in carrier_lower:
+            return CARRIER_REGISTRY['United Business SPL ETOE']()
+        # Check for NZP ETOE variant
         if 'nzp' in carrier_lower or 'etoe' in carrier_lower or 't&d' in carrier_lower or 't d' in carrier_lower:
             return CARRIER_REGISTRY['United Business NZP ETOE']()
         # Default to ADS variant
