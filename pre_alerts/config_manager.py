@@ -17,6 +17,25 @@ def get_pre_alert_config_path() -> str:
 
 
 @dataclass
+class QueueSettings:
+    """Settings for the manifest queue."""
+    retention_days: int = 14
+    auto_cleanup: bool = True
+    expand_today_on_start: bool = True
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'QueueSettings':
+        return cls(
+            retention_days=data.get('retention_days', 14),
+            auto_cleanup=data.get('auto_cleanup', True),
+            expand_today_on_start=data.get('expand_today_on_start', True),
+        )
+
+
+@dataclass
 class CarrierEmailConfig:
     """Email configuration for a single carrier."""
     enabled: bool = True
@@ -37,16 +56,19 @@ class CarrierEmailConfig:
         )
 
 
-@dataclass 
+@dataclass
 class PreAlertConfig:
     """Complete pre-alert configuration."""
-    
+
     # Carrier-specific email settings
     carriers: Dict[str, CarrierEmailConfig] = field(default_factory=dict)
-    
+
     # Global settings
     sender_name: str = "Citipost International Operations"
     email_template_path: str = "templates/pre_alert_email.html"
+
+    # Queue settings
+    queue_settings: QueueSettings = field(default_factory=QueueSettings)
     
     def __post_init__(self):
         """Ensure default carriers are present."""
@@ -125,11 +147,12 @@ class PreAlertConfig:
         """Convert to dictionary for JSON serialization."""
         return {
             "carriers": {
-                name: config.to_dict() 
+                name: config.to_dict()
                 for name, config in self.carriers.items()
             },
             "sender_name": self.sender_name,
             "email_template_path": self.email_template_path,
+            "queue_settings": self.queue_settings.to_dict(),
         }
     
     @classmethod
@@ -139,13 +162,18 @@ class PreAlertConfig:
         if 'carriers' in data:
             for name, config_data in data['carriers'].items():
                 carriers[name] = CarrierEmailConfig.from_dict(config_data)
-        
+
+        queue_settings = QueueSettings()
+        if 'queue_settings' in data:
+            queue_settings = QueueSettings.from_dict(data['queue_settings'])
+
         config = cls(
             carriers=carriers,
             sender_name=data.get('sender_name', "Citipost International Operations"),
             email_template_path=data.get('email_template_path', "templates/pre_alert_email.html"),
+            queue_settings=queue_settings,
         )
-        
+
         return config
     
     def save(self, path: Optional[str] = None):

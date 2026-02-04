@@ -30,5 +30,10 @@
     }
   },
   "sender_name": "Finlay Crawley",
-  "email_template_path": "templates/pre_alert_email.html"
+  "email_template_path": "templates/pre_alert_email.html",
+  "queue_settings": {
+    "retention_days": 14,
+    "auto_cleanup": true,
+    "expand_today_on_start": true
+  }
 }

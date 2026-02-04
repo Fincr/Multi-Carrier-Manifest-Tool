@@ -276,11 +276,12 @@ def format_email_body(
     Returns:
         Formatted HTML content
     """
-    return template.format(
-        carrier=carrier,
-        date=date,
-        po_number=po_number,
-        sender_name=sender_name
+    # Use replace() instead of format() to avoid conflicts with CSS curly braces
+    return (template
+        .replace("{carrier}", carrier)
+        .replace("{date}", date)
+        .replace("{po_number}", po_number)
+        .replace("{sender_name}", sender_name)
     )
 
 
