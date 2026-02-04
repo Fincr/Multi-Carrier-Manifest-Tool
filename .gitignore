@@ -121,3 +121,4 @@ templates/*.xls
 .claude/
 manifest_queue.json
 pre_alert_log.json
+pre_alert_config.json

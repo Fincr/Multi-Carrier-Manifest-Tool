@@ -2,7 +2,7 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.4.1
+**Version:** 1.4.2
 **Author:** Finlay Crawley
 
 ## What's New in v1.4.x
@@ -156,6 +156,32 @@ The tool looks for specific template filenames in the `templates/` folder. These
 - PDF close delay (1-30 seconds)
 - Max errors before stop (1-50)
 - All settings persist to `config.json`
+
+### Pre-Alert Email Automation
+
+The Pre-Alerts tab provides automated email notifications for processed manifests:
+
+**Features:**
+- **Automatic Queueing**: Manifests are automatically added to the queue after processing
+- **Per-Carrier Configuration**: Enable/disable pre-alerts per carrier with custom recipients
+- **Customizable Subjects**: Subject templates with placeholders ({carrier}, {date}, {po_number})
+- **Send Tracking**: Prevents duplicate emails, warns before re-sending
+- **Batch Sending**: Select and send multiple pre-alerts at once
+- **Outlook Integration**: Sends via Outlook desktop (emails appear in Sent folder)
+
+**Configuration:**
+1. Go to Pre-Alerts tab
+2. Click "Configure" next to a carrier
+3. Enable pre-alerts and add TO/CC recipients
+4. Customize the subject template if needed
+5. Settings persist to `pre_alert_config.json`
+
+**Utility Script:**
+For adding existing manifests to the queue (created before queue integration):
+```bash
+python scripts/add_manifests_to_queue.py        # Interactive mode
+python scripts/add_manifests_to_queue.py --yes  # Auto-confirm
+```
 
 ## Installation
 
@@ -369,48 +395,52 @@ The executable will be in `dist/gui.exe`.
 
 ```
 Multi Carrier Manifest Automation/
+├── assets/
+│   └── icon.ico              # Application icon
 ├── carriers/
-│   ├── __init__.py          # Carrier registry and auto-detection
-│   ├── base.py              # Abstract base class
-│   ├── asendia.py           # Asendia 2025/2026 handler
-│   ├── postnord.py          # PostNord handler
-│   ├── spring.py            # Spring Global handler (order lines)
-│   ├── spring_portal.py     # Spring Global robust portal automation
-│   ├── landmark.py          # Landmark Global handler (CSV generation)
-│   ├── deutschepost.py      # Deutsche Post handler
-│   ├── deutschepost_portal.py  # Deutsche Post portal automation
-│   ├── airbusiness.py       # Air Business Ireland handler
-│   ├── mail_americas.py     # Mail Americas/Africa handler
-│   ├── unitedbusiness.py    # United Business ADS handler
+│   ├── __init__.py           # Carrier registry and auto-detection
+│   ├── base.py               # Abstract base class
+│   ├── asendia.py            # Asendia 2025/2026 handler
+│   ├── postnord.py           # PostNord handler
+│   ├── spring.py             # Spring Global handler
+│   ├── spring_portal.py      # Spring Global portal automation
+│   ├── landmark.py           # Landmark Global handler
+│   ├── deutschepost.py       # Deutsche Post handler
+│   ├── deutschepost_portal.py # Deutsche Post portal automation
+│   ├── airbusiness.py        # Air Business Ireland handler
+│   ├── mail_americas.py      # Mail Americas/Africa handler
+│   ├── unitedbusiness.py     # United Business ADS handler
 │   ├── unitedbusiness_nzp.py # United Business NZP ETOE handler
 │   └── unitedbusiness_spl.py # United Business SPL ETOE handler
 ├── core/
 │   ├── __init__.py
-│   ├── engine.py            # Processing engine
-│   ├── config.py            # Configuration management
-│   └── credentials.py       # Portal credential loading (.env)
-├── templates/                          # NOT TRACKED - obtain from carriers
-│   ├── Asendia_UK_Business_2026_Mail_Manifest.xlsx
-│   ├── Asendia_UK_Business_Mail_2025.xlsx
-│   ├── PostNord.xlsx
-│   ├── MailOrderTemplate.xlsx
-│   ├── Air_Business_Ireland.xlsx
-│   ├── Mail_America_Africa_2025.xlsx
-│   ├── United_Business.xlsx
-│   ├── UBL_CP_Pre_Alert_T_D-ETOE.xlsx
-│   ├── UBL_CP_Pre_Alert_SPL-ETOE.xlsx
-│   ├── UploadCodeList_-_Citipost.xls
-│   └── pre_alert_email.html            # TRACKED - custom email template
+│   ├── engine.py             # Processing engine
+│   ├── config.py             # Configuration management
+│   └── credentials.py        # Portal credential loading (.env)
+├── pre_alerts/
+│   ├── __init__.py
+│   ├── config_manager.py     # Per-carrier email configuration
+│   ├── email_sender.py       # Outlook COM integration
+│   ├── manifest_queue.py     # Manifest queue persistence
+│   ├── pre_alert_tab.py      # Pre-Alerts tab UI
+│   └── send_tracker.py       # Send history tracking
+├── scripts/
+│   └── add_manifests_to_queue.py  # Utility to add manifests to queue
+├── templates/                # NOT TRACKED - obtain from carriers
+│   └── pre_alert_email.html  # TRACKED - custom email template
 ├── tools/
-│   ├── SumatraPDF.exe       # PDF printer (download separately)
-│   └── README.md            # Setup instructions
-├── gui.py                   # Main application
-├── config.json              # User settings (auto-generated)
-├── Run Manifest Tool.vbs    # Quick launcher (auto-updates from Git)
-├── update.bat               # Manual update script (git pull)
-├── first_time_setup.bat     # Initial setup script
-├── CHANGELOG.md             # Version history
-└── README.md                # This file
+│   ├── SumatraPDF.exe        # PDF printer (download separately)
+│   └── README.md             # Setup instructions
+├── gui.py                    # Main application
+├── config.json               # User settings (auto-generated)
+├── manifest_queue.json       # Manifest queue (auto-generated)
+├── pre_alert_config.json     # Pre-alert settings (auto-generated)
+├── pre_alert_log.json        # Send history (auto-generated)
+├── Run Manifest Tool.vbs     # Quick launcher (auto-updates)
+├── update.bat                # Manual update script
+├── first_time_setup.bat      # Initial setup script
+├── CHANGELOG.md              # Version history
+└── README.md                 # This file
 ```
 
 ## Troubleshooting

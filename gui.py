@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.4.1"
+__version__ = "1.4.2"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -1437,7 +1437,8 @@ class ManifestToolApp:
                         'file': filename,
                         'carrier': carrier_name,
                         'success': True,
-                        'output': results[0].output_file
+                        'output': results[0].output_file,
+                        'po_number': results[0].po_number
                     })
                 else:
                     self.batch_results.append({
@@ -1568,6 +1569,15 @@ class ManifestToolApp:
 
         self.status_var.set(f"Batch complete: {successful} succeeded, {failed} failed")
 
+        # Add successful manifests to pre-alert queue
+        for r in self.batch_results:
+            if r['success'] and r.get('output'):
+                self.pre_alert_tab.add_manifest(
+                    carrier_name=r['carrier'],
+                    po_number=r.get('po_number', ''),
+                    manifest_path=r['output']
+                )
+
         # Show summary dialog
         messagebox.showinfo(
             "Batch Processing Complete",
@@ -1642,12 +1652,15 @@ class ManifestToolApp:
 Version: {__version__}
 Author: {__author__}
 
-A tool for automating the population of carrier manifests
-from internal carrier sheets.
+Automates population of carrier manifests from internal
+carrier sheets with integrated workflow automation.
 
 Features:
 • Auto-detection of carrier from carrier sheet
+• Batch processing of multiple carrier sheets
 • Portal automation (Spring, Landmark, Deutsche Post)
+• Pre-alert email automation via Outlook
+• Manifest queue with per-carrier email configuration
 • Auto-print to configured printer
 • Configurable settings
 
