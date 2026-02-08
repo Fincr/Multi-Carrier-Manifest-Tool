@@ -5,6 +5,23 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-02-08
+
+### Added
+- **Network Folder Scanning on Startup** - Pre-Alerts tab now scans the shared network folder at launch to discover existing manifests
+  - Automatically adds any new manifests found in the output directory to the pre-alert queue
+  - Deduplicates by file path (case-insensitive) so manifests are never added twice
+  - Runs in a background thread to avoid blocking the UI
+  - Shows a warning popup if the network folder is unreachable (e.g. VPN not connected)
+  - Log messages report how many manifests were added vs already queued
+
+### Changed
+- **Refactored scanning logic into shared module** (`pre_alerts/network_scanner.py`)
+  - `CARRIER_PATTERNS`, `extract_carrier()`, `extract_po_number()`, `scan_manifests()` moved from `scripts/add_manifests_to_queue.py`
+  - New `is_network_path_accessible()` helper for checking folder availability
+  - `scripts/add_manifests_to_queue.py` now imports from the shared module (same behavior)
+- `ManifestQueue` gains `has_manifest_path()` and `add_manifest_if_new()` for path-based deduplication
+
 ## [1.4.2] - 2026-02-04
 
 ### Changed

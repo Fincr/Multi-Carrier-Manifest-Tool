@@ -2,10 +2,17 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.4.2
+**Version:** 1.4.3
 **Author:** Finlay Crawley
 
 ## What's New in v1.4.x
+
+**v1.4.3** - Network folder scanning on startup:
+- Pre-Alerts tab automatically scans the shared network folder at launch
+- Discovers existing manifests and adds new ones to the queue (deduplicated by path)
+- Background thread keeps the UI responsive
+- Warning popup if the network folder is unreachable (VPN not connected)
+- Scanning logic extracted into shared `pre_alerts/network_scanner.py` module
 
 **v1.4.1** - United Business SPL ETOE carrier support:
 - New carrier for SPL ETOE Priority Manifest (Untracked Priority Mail)
@@ -422,6 +429,7 @@ Multi Carrier Manifest Automation/
 │   ├── config_manager.py     # Per-carrier email configuration
 │   ├── email_sender.py       # Outlook COM integration
 │   ├── manifest_queue.py     # Manifest queue persistence
+│   ├── network_scanner.py    # Shared network folder scanning logic
 │   ├── pre_alert_tab.py      # Pre-Alerts tab UI
 │   └── send_tracker.py       # Send history tracking
 ├── scripts/

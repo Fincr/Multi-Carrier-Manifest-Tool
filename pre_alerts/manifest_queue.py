@@ -210,6 +210,48 @@ class ManifestQueue:
 
         return manifest_id
 
+    def has_manifest_path(self, manifest_path: str) -> bool:
+        """
+        Check if a manifest with the given path already exists in the queue.
+
+        Uses os.path.normcase() for case-insensitive Windows path comparison.
+
+        Args:
+            manifest_path: Full path to the manifest file
+
+        Returns:
+            True if a manifest with this path is already queued
+        """
+        normalized = os.path.normcase(manifest_path)
+        for date, manifests in self.data.items():
+            for m in manifests:
+                if os.path.normcase(m.get('manifest_path', '')) == normalized:
+                    return True
+        return False
+
+    def add_manifest_if_new(
+        self,
+        carrier: str,
+        po_number: str,
+        manifest_path: str,
+        date: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Add a manifest only if its path is not already in the queue.
+
+        Args:
+            carrier: Carrier name (canonical)
+            po_number: PO number
+            manifest_path: Full path to manifest file
+            date: Optional date override (YYYY-MM-DD), defaults to today
+
+        Returns:
+            The generated manifest ID if added, None if duplicate
+        """
+        if self.has_manifest_path(manifest_path):
+            return None
+        return self.add_manifest(carrier, po_number, manifest_path, date)
+
     def get_manifest(self, manifest_id: str) -> Optional[QueuedManifest]:
         """Get a manifest by ID."""
         for date, manifests in self.data.items():

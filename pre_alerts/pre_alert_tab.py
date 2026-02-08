@@ -19,6 +19,8 @@ from .config_manager import (
 from .send_tracker import SendTracker, SendRecord
 from .manifest_queue import ManifestQueue, QueuedManifest
 from .email_sender import send_pre_alert_email
+from .network_scanner import scan_manifests, is_network_path_accessible
+from core.config import get_config
 
 
 class PreAlertConfigDialog:
@@ -173,6 +175,7 @@ class PreAlertTab:
 
         self._create_widgets()
         self._refresh_display()
+        self._start_network_scan()
 
     def set_log_callback(self, callback: Callable[[str], None]):
         """Set callback for logging messages."""
@@ -772,6 +775,65 @@ class PreAlertTab:
         ):
             self.queue.clear_all()
             self._refresh_display()
+
+    # =========================================================================
+    # Network Folder Scanning
+    # =========================================================================
+
+    def _start_network_scan(self):
+        """Start background scan of the network manifest folder."""
+        app_config = get_config()
+        scan_dir = app_config.default_output_dir
+
+        if not scan_dir:
+            return
+
+        thread = threading.Thread(
+            target=self._network_scan_thread,
+            args=(scan_dir,),
+            daemon=True
+        )
+        thread.start()
+
+    def _network_scan_thread(self, scan_dir: str):
+        """Background thread: scan network folder for existing manifests."""
+        if not is_network_path_accessible(scan_dir):
+            self.parent.after(0, self._on_network_scan_complete, 0, 0, False)
+            return
+
+        found = scan_manifests(scan_dir)
+        added = 0
+        skipped = 0
+
+        for m in found:
+            result = self.queue.add_manifest_if_new(
+                carrier=m["carrier"],
+                po_number=m["po_number"],
+                manifest_path=m["path"],
+            )
+            if result is not None:
+                added += 1
+            else:
+                skipped += 1
+
+        self.parent.after(0, self._on_network_scan_complete, added, skipped, True)
+
+    def _on_network_scan_complete(self, added: int, skipped: int, network_ok: bool):
+        """Handle network scan completion on the main thread."""
+        if not network_ok:
+            messagebox.showwarning(
+                "Network Folder Unreachable",
+                "Could not access the manifest network folder.\n\n"
+                "Please check your VPN connection and try refreshing."
+            )
+            self._log("[!] Network scan: folder unreachable (check VPN)")
+            return
+
+        if added > 0:
+            self._log(f"Network scan: added {added} manifest(s), {skipped} already in queue")
+            self._refresh_display()
+        elif skipped > 0:
+            self._log(f"Network scan: all {skipped} manifest(s) already in queue")
 
 
 class GlobalSettingsDialog:
