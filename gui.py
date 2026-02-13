@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.4.3"
+__version__ = "1.4.4"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -252,9 +252,12 @@ def print_excel_workbook(filepath: str, printer_name: str = None) -> tuple[bool,
         
         # Set "Fit All Columns on One Page" for each sheet
         for sheet in wb.Sheets:
-            sheet.PageSetup.Zoom = False  # Disable fixed zoom to allow fit-to-page
-            sheet.PageSetup.FitToPagesWide = 1  # Fit all columns to 1 page wide
-            sheet.PageSetup.FitToPagesTall = False  # Don't constrain rows (allow multiple pages tall)
+            try:
+                sheet.PageSetup.Zoom = False  # Disable fixed zoom to allow fit-to-page
+                sheet.PageSetup.FitToPagesWide = 1  # Fit all columns to 1 page wide
+                sheet.PageSetup.FitToPagesTall = 32767  # Don't constrain rows (max pages tall)
+            except Exception:
+                pass  # Skip sheets that don't support PageSetup (e.g. chart sheets)
         
         # Print entire workbook
         if printer_name:
@@ -1660,7 +1663,7 @@ Features:
 • Batch processing of multiple carrier sheets
 • Portal automation (Spring, Landmark, Deutsche Post)
 • Pre-alert email automation via Outlook
-• Manifest queue with per-carrier email configuration
+• Manifest queue with network folder scanning
 • Auto-print to configured printer
 • Configurable settings
 

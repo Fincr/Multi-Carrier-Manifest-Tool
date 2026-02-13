@@ -5,6 +5,16 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-02-13
+
+### Fixed
+- **Excel print failure on multi-sheet workbooks** - `FitToPagesTall = False` caused COM error on PostNord and other multi-sheet manifests; now uses valid max value (32767)
+- Added per-sheet error handling in `print_excel_workbook()` so PageSetup failures on individual sheets (e.g. chart sheets) don't prevent printing
+
+### Documentation
+- Updated About dialog with current feature list (batch processing, pre-alerts, network scanning)
+- Updated README version
+
 ## [1.4.3] - 2026-02-08
 
 ### Added

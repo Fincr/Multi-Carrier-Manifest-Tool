@@ -2,10 +2,14 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.4.3
+**Version:** 1.4.4
 **Author:** Finlay Crawley
 
 ## What's New in v1.4.x
+
+**v1.4.4** - Print bug fix and documentation updates:
+- Fixed Excel COM print failure on multi-sheet workbooks (PostNord, Asendia, etc.)
+- Updated About dialog with current feature list
 
 **v1.4.3** - Network folder scanning on startup:
 - Pre-Alerts tab automatically scans the shared network folder at launch
