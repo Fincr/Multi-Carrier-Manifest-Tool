@@ -151,7 +151,12 @@ class PreAlertTab:
     # Carriers that require pre-alerts
     PRE_ALERT_CARRIERS = ["Asendia", "Deutsche Post", "PostNord", "United Business"]
 
-    def __init__(self, parent: ttk.Frame, app_dir: str):
+    def __init__(
+        self,
+        parent: ttk.Frame,
+        app_dir: str,
+        startup_status_callback: Optional[Callable[[str], None]] = None
+    ):
         """
         Initialize the pre-alert tab.
 
@@ -161,6 +166,7 @@ class PreAlertTab:
         """
         self.parent = parent
         self.app_dir = app_dir
+        self.startup_status_callback = startup_status_callback
         self.config = load_pre_alert_config()
         self.tracker = SendTracker()
         self.queue = ManifestQueue(retention_days=self.config.queue_settings.retention_days)
@@ -176,6 +182,15 @@ class PreAlertTab:
         self._create_widgets()
         self._refresh_display()
         self._start_network_scan()
+
+    def _emit_startup_status(self, message: str):
+        """Emit startup status updates to the parent app if configured."""
+        if not self.startup_status_callback:
+            return
+        try:
+            self.parent.after(0, self.startup_status_callback, message)
+        except Exception:
+            pass
 
     def set_log_callback(self, callback: Callable[[str], None]):
         """Set callback for logging messages."""
@@ -782,10 +797,12 @@ class PreAlertTab:
 
     def _start_network_scan(self):
         """Start background scan of the network manifest folder."""
+        self._emit_startup_status("Checking network manifest folder...")
         app_config = get_config()
         scan_dir = app_config.default_output_dir
 
         if not scan_dir:
+            self._emit_startup_status("Startup complete")
             return
 
         thread = threading.Thread(
@@ -797,6 +814,7 @@ class PreAlertTab:
 
     def _network_scan_thread(self, scan_dir: str):
         """Background thread: scan network folder for existing manifests."""
+        self._emit_startup_status("Scanning network manifest folder...")
         if not is_network_path_accessible(scan_dir):
             self.parent.after(0, self._on_network_scan_complete, 0, 0, False)
             return
@@ -821,19 +839,19 @@ class PreAlertTab:
     def _on_network_scan_complete(self, added: int, skipped: int, network_ok: bool):
         """Handle network scan completion on the main thread."""
         if not network_ok:
-            messagebox.showwarning(
-                "Network Folder Unreachable",
-                "Could not access the manifest network folder.\n\n"
-                "Please check your VPN connection and try refreshing."
-            )
             self._log("[!] Network scan: folder unreachable (check VPN)")
+            self._emit_startup_status("Network folder unreachable (check VPN). Startup complete")
             return
 
         if added > 0:
             self._log(f"Network scan: added {added} manifest(s), {skipped} already in queue")
             self._refresh_display()
+            self._emit_startup_status(f"Network scan complete: added {added}, skipped {skipped}. Startup complete")
         elif skipped > 0:
             self._log(f"Network scan: all {skipped} manifest(s) already in queue")
+            self._emit_startup_status(f"Network scan complete: {skipped} already queued. Startup complete")
+        else:
+            self._emit_startup_status("Network scan complete: no manifests found. Startup complete")
 
 
 class GlobalSettingsDialog:

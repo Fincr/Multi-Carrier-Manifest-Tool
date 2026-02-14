@@ -16,7 +16,7 @@ Usage:
     python gui.py
 """
 
-__version__ = "1.4.4"
+__version__ = "1.4.5"
 __author__ = "Finlay Crawley"
 
 import sys
@@ -974,11 +974,96 @@ class SettingsDialog:
         return self.result
 
 
+class StartupSplash:
+    """Lightweight startup status window shown while the app initializes."""
+
+    def __init__(self, root):
+        self.root = root
+        self.window = tk.Toplevel(root)
+        self.window.title("Starting Multi-Carrier Manifest Tool")
+        self.window.geometry("540x230")
+        self.window.resizable(False, False)
+        self.window.attributes("-topmost", True)
+        self.window.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        self.status_var = tk.StringVar(value="Starting...")
+        self.detail_var = tk.StringVar(value="Preparing application")
+
+        frame = ttk.Frame(self.window, padding="16")
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text="Multi-Carrier Manifest Tool",
+            font=("Helvetica", 14, "bold")
+        ).pack(anchor="w")
+
+        ttk.Label(
+            frame,
+            textvariable=self.status_var,
+            font=("Helvetica", 11, "bold")
+        ).pack(anchor="w", pady=(10, 0))
+
+        ttk.Label(
+            frame,
+            textvariable=self.detail_var,
+            foreground="gray"
+        ).pack(anchor="w", pady=(4, 10))
+
+        self.progress = ttk.Progressbar(frame, mode="indeterminate")
+        self.progress.pack(fill="x", pady=(0, 12))
+        self.progress.start()
+
+        ttk.Label(
+            frame,
+            text="Tip: Startup can be slower if VPN or network folders are slow.\n"
+                 "The app will open automatically when checks finish.",
+            foreground="gray"
+        ).pack(anchor="w")
+
+        self._center()
+        self.window.update_idletasks()
+
+    def _center(self):
+        """Center splash window on screen."""
+        self.window.update_idletasks()
+        width = self.window.winfo_width()
+        height = self.window.winfo_height()
+        x = (self.window.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.window.winfo_screenheight() // 2) - (height // 2)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+
+    def update_status(self, status: str, detail: str = ""):
+        """Update status text shown to the user."""
+        if not self.window or not self.window.winfo_exists():
+            return
+        self.status_var.set(status)
+        if detail:
+            self.detail_var.set(detail)
+        self.window.update_idletasks()
+
+    def close(self):
+        """Close the startup splash."""
+        if not self.window:
+            return
+        try:
+            self.progress.stop()
+        except Exception:
+            pass
+        try:
+            self.window.destroy()
+        except Exception:
+            pass
+        self.window = None
+
+
 class ManifestToolApp:
     """Main application window."""
     
-    def __init__(self, root):
+    def __init__(self, root, startup_splash: StartupSplash | None = None):
         self.root = root
+        self.startup_splash = startup_splash
+        self._set_startup_status("Initializing interface...", "Preparing main window")
         self.root.title(f"Multi-Carrier Manifest Tool v{__version__}")
         self.root.geometry("750x700")
         self.root.resizable(True, True)
@@ -993,6 +1078,7 @@ class ManifestToolApp:
                 pass  # Icon failed to load, continue without it
         
         # Load config
+        self._set_startup_status("Loading settings...", "Loading printer and output preferences")
         self.config = get_config()
         
         # Paths
@@ -1015,8 +1101,32 @@ class ManifestToolApp:
         self.batch_files = []  # List of (filepath, carrier_name) tuples
         self.batch_results = []  # List of batch result dicts
 
+        self._set_startup_status("Building interface...", "Creating tabs and controls")
         self.create_widgets()
+        self._set_startup_status("Checking templates...", "Verifying available carrier templates")
         self.check_templates()
+        self._set_startup_status("Loading pre-alert queue...", "Checking network manifest folder")
+
+    def _set_startup_status(self, status: str, detail: str = ""):
+        """Update startup splash status if splash exists."""
+        if self.startup_splash:
+            self.startup_splash.update_status(status, detail)
+
+    def _on_startup_status_update(self, message: str):
+        """Handle startup status messages from background startup tasks."""
+        self._set_startup_status(message)
+
+        if hasattr(self, "log_text"):
+            self.log(f"[Startup] {message}")
+
+        if "startup complete" in message.lower():
+            self._finish_startup_splash()
+
+    def _finish_startup_splash(self):
+        """Close startup splash if still visible."""
+        if self.startup_splash:
+            self.startup_splash.close()
+            self.startup_splash = None
     
     def create_widgets(self):
         """Build the UI."""
@@ -1203,7 +1313,11 @@ class ManifestToolApp:
         self.notebook.add(pre_alert_frame, text="Pre-Alerts")
         
         # Create pre-alert tab component
-        self.pre_alert_tab = PreAlertTab(pre_alert_frame, self.app_dir)
+        self.pre_alert_tab = PreAlertTab(
+            pre_alert_frame,
+            self.app_dir,
+            startup_status_callback=self._on_startup_status_update
+        )
         self.pre_alert_tab.set_log_callback(self.log)
     
     def check_templates(self):
@@ -2159,6 +2273,7 @@ Features:
 
 def main():
     root = tk.Tk()
+    root.withdraw()
     
     # Try to set a nicer theme
     try:
@@ -2168,7 +2283,19 @@ def main():
     except Exception:
         pass
     
-    ManifestToolApp(root)
+    splash = None
+    try:
+        splash = StartupSplash(root)
+    except Exception:
+        splash = None
+
+    app = ManifestToolApp(root, startup_splash=splash)
+    root.deiconify()
+    root.lift()
+    root.focus_force()
+
+    # If startup callbacks did not close splash, close it after UI is visible.
+    root.after(8000, app._finish_startup_splash)
     root.mainloop()
 
 

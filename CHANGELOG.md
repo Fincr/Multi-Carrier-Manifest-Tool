@@ -5,6 +5,23 @@ All notable changes to the Multi-Carrier Manifest Tool will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-02-14
+
+### Added
+- **Startup loading screen in launcher** (`Run Manifest Tool.vbs`)
+  - Shows immediate status window when launched via VBS
+  - Displays update/startup phases so users can see progress
+  - Adds soft timeout for `git pull` (25 seconds), then launches app anyway
+- **In-app startup splash** (`gui.py`)
+  - Shows initialization status while UI and startup checks run
+  - Includes helpful tip text for VPN/network-related startup delays
+
+### Changed
+- **Pre-Alerts startup network scan messaging** (`pre_alerts/pre_alert_tab.py`)
+  - Replaced blocking "Network Folder Unreachable" popup at startup
+  - Now reports startup issues non-modally via startup status/log messages
+- Updated README version and "What's New" section for v1.4.5
+
 ## [1.4.4] - 2026-02-13
 
 ### Fixed

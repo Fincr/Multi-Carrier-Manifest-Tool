@@ -2,10 +2,17 @@
 
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
-**Version:** 1.4.4
+**Version:** 1.4.5
 **Author:** Finlay Crawley
 
 ## What's New in v1.4.x
+
+**v1.4.5** - Startup loading screens and user feedback:
+- Added launcher loading window when starting from `Run Manifest Tool.vbs`
+- Shows real-time startup status (starting app, checking updates, launching GUI)
+- Added soft timeout for launcher update check (app launches even if `git pull` is slow)
+- Added in-app startup splash with initialization progress and helpful tip text
+- Pre-Alerts startup network scan now reports non-modal status instead of blocking popup
 
 **v1.4.4** - Print bug fix and documentation updates:
 - Fixed Excel COM print failure on multi-sheet workbooks (PostNord, Asendia, etc.)
