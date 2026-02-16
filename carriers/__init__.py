@@ -81,7 +81,7 @@ def get_carrier(carrier_name: str) -> BaseCarrier:
         return CARRIER_REGISTRY['Landmark Global']()
     
     # Check for Deutsche Post
-    if 'deutsche' in carrier_lower or 'deutschepost' in carrier_lower:
+    if 'deutsche' in carrier_lower or 'deutschepost' in carrier_lower or 'dpi' in carrier_lower or 'ukmail' in carrier_lower:
         return CARRIER_REGISTRY['Deutsche Post']()
     
     # Check for United Business variants
