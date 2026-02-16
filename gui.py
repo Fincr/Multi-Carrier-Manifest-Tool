@@ -1453,13 +1453,10 @@ class ManifestToolApp:
         # Check for duplicate carriers (same carrier type appearing multiple times)
         carrier_counts = {}
         for filepath, carrier_name in self.batch_files:
-            # Normalize carrier name for comparison (the resolved carrier type)
-            try:
-                from carriers import get_carrier
-                carrier_instance = get_carrier(carrier_name)
-                carrier_type = type(carrier_instance).__name__
-            except ValueError:
-                carrier_type = carrier_name
+            # Use the actual B3 sheet name so variant carriers (e.g.
+            # "DPI - UKMail 2026" vs "Deutsche Post 2026") are not falsely
+            # flagged as duplicates of the same handler class.
+            carrier_type = carrier_name.strip()
 
             if carrier_type not in carrier_counts:
                 carrier_counts[carrier_type] = []
