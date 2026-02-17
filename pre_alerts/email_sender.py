@@ -5,6 +5,7 @@ Sends pre-alert emails via Outlook COM automation.
 """
 
 import os
+import re
 from datetime import datetime
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
@@ -285,6 +286,50 @@ def format_email_body(
     )
 
 
+def find_companion_files(manifest_path: str) -> List[str]:
+    """
+    Find companion PDF files in the same directory as the manifest.
+
+    Matches PDFs that share the same carrier prefix and PO number
+    as the Excel manifest filename.
+
+    Args:
+        manifest_path: Path to the Excel manifest file.
+
+    Returns:
+        List of paths to matching PDF files (empty if none found).
+    """
+    directory = os.path.dirname(manifest_path)
+    filename = os.path.basename(manifest_path)
+
+    # Extract carrier prefix (leading non-numeric underscore-separated words)
+    # e.g. "Deutsche_Post" from "Deutsche_Post_5367_27911_16.02.2026_20260216_131915.xlsx"
+    prefix_match = re.match(r'^([A-Za-z][A-Za-z_-]*?)_\d', filename)
+    if not prefix_match:
+        return []
+    carrier_prefix = prefix_match.group(1)
+
+    # Extract all 5-digit numbers as candidate PO numbers
+    po_numbers = re.findall(r'_(\d{5})(?:_|\.)', filename)
+    if not po_numbers:
+        return []
+
+    companions = []
+    try:
+        for f in os.listdir(directory):
+            if not f.lower().endswith('.pdf'):
+                continue
+            if not f.startswith(carrier_prefix + '_'):
+                continue
+            # Check that at least one PO number appears in the PDF filename
+            if any(f'_{po}_' in f or f'_{po}.' in f for po in po_numbers):
+                companions.append(os.path.join(directory, f))
+    except OSError:
+        pass
+
+    return companions
+
+
 def send_pre_alert_email(
     carrier_name: str,
     po_number: str,
@@ -343,7 +388,7 @@ def send_pre_alert_email(
             cc=cc,
             subject=subject,
             body_html=body_html,
-            attachments=[manifest_path],
+            attachments=[manifest_path] + find_companion_files(manifest_path),
             display_only=display_only
         )
         return result.success, result.message
