@@ -77,6 +77,7 @@ def main():
             carrier=m["carrier"],
             po_number=m["po_number"],
             manifest_path=m["path"],
+            date=m.get("date"),
         )
         print(f"  Added: {m['carrier']} PO {m['po_number']} -> {manifest_id}")
         added += 1

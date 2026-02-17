@@ -36,6 +36,15 @@ def extract_carrier(filename: str) -> str | None:
     return None
 
 
+def extract_date(filename: str) -> str | None:
+    """Extract date from filename (YYYYMMDD pattern) and return as YYYY-MM-DD."""
+    match = re.search(r"_(\d{8})_", filename)
+    if match:
+        d = match.group(1)
+        return f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+    return None
+
+
 def extract_po_number(filename: str) -> str | None:
     """Extract PO number from filename (5-digit number)."""
     match = re.search(r"_(\d{5})_", filename)
@@ -83,6 +92,7 @@ def scan_manifests(directory: str, date_filter: str | None = None) -> list[dict]
                 "po_number": po_number,
                 "path": filepath,
                 "filename": filename,
+                "date": extract_date(filename),
             })
 
     return manifests

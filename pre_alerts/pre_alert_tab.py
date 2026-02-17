@@ -772,11 +772,15 @@ class PreAlertTab:
         if not canonical:
             return  # Not a pre-alert carrier
 
-        # Add to persistent queue
+        # Add to persistent queue – extract date from filename so the manifest
+        # is grouped under its actual date rather than the discovery time.
+        from pre_alerts.network_scanner import extract_date
+        manifest_date = extract_date(os.path.basename(manifest_path))
         manifest_id = self.queue.add_manifest(
             carrier=canonical,
             po_number=po_number,
-            manifest_path=manifest_path
+            manifest_path=manifest_path,
+            date=manifest_date,
         )
 
         self._log(f"Queued: {canonical} - PO {po_number}")
@@ -828,6 +832,7 @@ class PreAlertTab:
                 carrier=m["carrier"],
                 po_number=m["po_number"],
                 manifest_path=m["path"],
+                date=m.get("date"),
             )
             if result is not None:
                 added += 1
