@@ -149,7 +149,9 @@ class AsendiaCarrier(BaseCarrier):
         """Set PO and date in both manifest sheets."""
         for sheet_name in ['Priority Manifest', 'Non-Priority Manifest']:
             sheet = workbook[sheet_name]
+            sheet['D6'] = 'Citipost Global'
             sheet['I6'] = po_number
+            sheet['L3'] = 'X'
             sheet['N6'] = shipment_date
 
 
