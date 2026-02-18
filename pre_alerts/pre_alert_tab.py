@@ -828,8 +828,14 @@ class PreAlertTab:
         skipped = 0
 
         for m in found:
+            # Only queue carriers that are configured for pre-alerts
+            canonical = self.config.get_canonical_carrier_name(m["carrier"])
+            if not canonical:
+                skipped += 1
+                continue
+
             result = self.queue.add_manifest_if_new(
-                carrier=m["carrier"],
+                carrier=canonical,
                 po_number=m["po_number"],
                 manifest_path=m["path"],
                 date=m.get("date"),

@@ -286,7 +286,7 @@ def format_email_body(
     )
 
 
-def find_companion_files(manifest_path: str) -> List[str]:
+def find_companion_files(manifest_path: str, po_number: str = "") -> List[str]:
     """
     Find companion PDF files in the same directory as the manifest.
 
@@ -295,6 +295,7 @@ def find_companion_files(manifest_path: str) -> List[str]:
 
     Args:
         manifest_path: Path to the Excel manifest file.
+        po_number: Known PO number (preferred over extracting from filename).
 
     Returns:
         List of paths to matching PDF files (empty if none found).
@@ -302,17 +303,20 @@ def find_companion_files(manifest_path: str) -> List[str]:
     directory = os.path.dirname(manifest_path)
     filename = os.path.basename(manifest_path)
 
-    # Extract carrier prefix (leading non-numeric underscore-separated words)
-    # e.g. "Deutsche_Post" from "Deutsche_Post_5367_27911_16.02.2026_20260216_131915.xlsx"
-    prefix_match = re.match(r'^([A-Za-z][A-Za-z_-]*?)_\d', filename)
+    # Allow spaces in carrier names (e.g. "Deutsche Post")
+    prefix_match = re.match(r'^([A-Za-z][A-Za-z _-]*?)[\s_]\d', filename)
     if not prefix_match:
         return []
-    carrier_prefix = prefix_match.group(1)
+    # Normalise spaces → underscores to match PDF naming convention
+    carrier_prefix = prefix_match.group(1).replace(' ', '_')
 
-    # Extract all 5-digit numbers as candidate PO numbers
-    po_numbers = re.findall(r'_(\d{5})(?:_|\.)', filename)
-    if not po_numbers:
-        return []
+    # Use caller-supplied PO if available; otherwise extract from filename
+    if po_number:
+        po_numbers = [po_number]
+    else:
+        po_numbers = re.findall(r'[\s_](\d{5})(?:[\s_]|\.)', filename)
+        if not po_numbers:
+            return []
 
     companions = []
     try:
@@ -321,7 +325,6 @@ def find_companion_files(manifest_path: str) -> List[str]:
                 continue
             if not f.startswith(carrier_prefix + '_'):
                 continue
-            # Check that at least one PO number appears in the PDF filename
             if any(f'_{po}_' in f or f'_{po}.' in f for po in po_numbers):
                 companions.append(os.path.join(directory, f))
     except OSError:
@@ -388,7 +391,7 @@ def send_pre_alert_email(
             cc=cc,
             subject=subject,
             body_html=body_html,
-            attachments=[manifest_path] + find_companion_files(manifest_path),
+            attachments=[manifest_path] + find_companion_files(manifest_path, po_number),
             display_only=display_only
         )
         return result.success, result.message
