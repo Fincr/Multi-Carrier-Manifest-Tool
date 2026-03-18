@@ -13,6 +13,7 @@ from .deutschepost import DeutschePostCarrier
 from .unitedbusiness import UnitedBusinessCarrier
 from .unitedbusiness_nzp import UnitedBusinessNZPCarrier
 from .unitedbusiness_spl import UnitedBusinessSPLCarrier
+from .metafora import MetaforaNZPCarrier, MetaforaSPLCarrier
 
 # Registry of available carriers
 CARRIER_REGISTRY = {
@@ -27,6 +28,8 @@ CARRIER_REGISTRY = {
     'United Business ADS': UnitedBusinessCarrier,
     'United Business NZP ETOE': UnitedBusinessNZPCarrier,
     'United Business SPL ETOE': UnitedBusinessSPLCarrier,
+    'Metafora 2026 - NZP': MetaforaNZPCarrier,
+    'Metafora 2026 - SPL': MetaforaSPLCarrier,
 }
 
 
@@ -95,6 +98,14 @@ def get_carrier(carrier_name: str) -> BaseCarrier:
         # Default to ADS variant
         return CARRIER_REGISTRY['United Business ADS']()
     
+    # Check for Metafora
+    if 'metafora' in carrier_lower:
+        if 'spl' in carrier_lower:
+            return CARRIER_REGISTRY['Metafora 2026 - SPL']()
+        if 'nzp' in carrier_lower:
+            return CARRIER_REGISTRY['Metafora 2026 - NZP']()
+        raise ValueError(f"Metafora variant (NZP/SPL) not specified: {carrier_name}")
+
     raise ValueError(f"Unknown carrier: {carrier_name}. Available: {list(CARRIER_REGISTRY.keys())}")
 
 

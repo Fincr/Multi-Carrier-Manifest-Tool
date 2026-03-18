@@ -24,6 +24,8 @@ CARRIER_PATTERNS = {
     r"^United_Business.*NZP": "United Business NZP ETOE",
     r"^United_Business.*SPL": "United Business SPL ETOE",
     r"^United_Business": "United Business ADS",
+    r"^Metafora_2026_-_NZP": "Metafora 2026 - NZP",
+    r"^Metafora_2026_-_SPL": "Metafora 2026 - SPL",
     r"^Mail_Americas": "Mail Americas",
 }
 

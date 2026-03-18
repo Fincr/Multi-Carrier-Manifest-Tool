@@ -13,6 +13,7 @@ from carriers import get_carrier, ShipmentRecord
 from carriers.spring import SpringCarrier
 from carriers.landmark import LandmarkCarrier
 from carriers.deutschepost import DeutschePostCarrier
+from carriers.metafora import MetaforaBaseCarrier
 
 
 @dataclass
@@ -198,6 +199,11 @@ class ManifestEngine:
                     self.log(f"  ✗ Stopping: exceeded {max_errors} errors")
                     break
         
+        # Flush aggregated data for Metafora carriers
+        if isinstance(carrier, MetaforaBaseCarrier):
+            carrier.flush_to_workbook(wb)
+            self.log(f"Wrote {len(carrier._aggregated_data)} data rows to manifest")
+
         # Generate output filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_carrier = str(carrier_name).replace(" ", "_").replace("/", "-")
