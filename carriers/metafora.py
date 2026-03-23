@@ -10,6 +10,7 @@ Format codes: P = Letters, G = Flats, E = Packets
 
 from datetime import datetime, timedelta
 from typing import Dict, Tuple
+from openpyxl.styles import Font
 from .base import BaseCarrier, ShipmentRecord, PlacementResult
 
 
@@ -141,9 +142,14 @@ class MetaforaBaseCarrier(BaseCarrier):
         sheet = workbook[self.sheet_name]
         row = self.DATA_START_ROW
 
+        # Template has white font (theme=0) on column C; override to black
+        black_font = Font(name='Calibri', size=11, color='FF000000')
+
         for (country, format_code), (items, weight) in sorted(self._aggregated_data.items()):
             sheet.cell(row=row, column=self.COUNTRY_COL).value = country
-            sheet.cell(row=row, column=self.FORMAT_COL).value = format_code
+            fmt_cell = sheet.cell(row=row, column=self.FORMAT_COL)
+            fmt_cell.value = format_code
+            fmt_cell.font = black_font
             sheet.cell(row=row, column=self.ITEMS_COL).value = items
             sheet.cell(row=row, column=self.WEIGHT_COL).value = round(weight, 3)
             sheet.cell(row=row, column=self.AVG_COL).value = f'=IFERROR(E{row}/D{row},0)'
