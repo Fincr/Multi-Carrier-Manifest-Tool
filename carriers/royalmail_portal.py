@@ -663,60 +663,11 @@ async def _submit_to_royalmail_portal_impl(
 
             downloaded_file = pdf_path
 
-            # Print if enabled — use Adobe silent print (avoids trust prompt)
+            # Print if enabled — reuse the app's print function (SumatraPDF > Adobe /t > fallback)
             if auto_print and downloaded_file and os.path.exists(downloaded_file):
                 log("  Printing confirmation...")
-                import threading
-
-                print_success = False
-                print_msg = ""
-
-                # Use Adobe's /p /h flags for silent printing (same as gui._do_print)
-                adobe_paths = [
-                    r"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
-                    r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                    r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                    r"C:\Program Files (x86)\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
-                ]
-                adobe_exe = None
-                for path in adobe_paths:
-                    if os.path.exists(path):
-                        adobe_exe = path
-                        break
-
-                if adobe_exe:
-                    try:
-                        proc = subprocess.Popen([adobe_exe, '/p', '/h', downloaded_file])
-                        print_success = True
-                        print_msg = "Sent to printer via Adobe"
-
-                        def close_adobe_later():
-                            time.sleep(7)
-                            try:
-                                proc.terminate()
-                            except Exception:
-                                pass
-                            for exe in ['Acrobat.exe', 'AcroRd32.exe']:
-                                try:
-                                    subprocess.run(['taskkill', '/F', '/IM', exe],
-                                                 capture_output=True, timeout=5)
-                                except Exception:
-                                    pass
-                        threading.Thread(target=close_adobe_later, daemon=True).start()
-                    except Exception as e:
-                        print_msg = f"Adobe print failed: {e}"
-                else:
-                    # Fallback to ShellExecute if Adobe not found
-                    import ctypes
-                    try:
-                        result = ctypes.windll.shell32.ShellExecuteW(
-                            None, "print", downloaded_file, None, None, 0
-                        )
-                        print_success = result > 32
-                        print_msg = "Sent to default printer" if print_success else f"Print failed with code {result}"
-                    except Exception as e:
-                        print_msg = str(e)
-
+                from gui import print_pdf_file
+                print_success, print_msg = print_pdf_file(downloaded_file)
                 if print_success:
                     log(f"  {print_msg}")
                     return True, "Order confirmed, saved and printed successfully"
