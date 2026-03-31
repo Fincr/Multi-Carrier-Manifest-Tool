@@ -14,6 +14,7 @@ from .unitedbusiness import UnitedBusinessCarrier
 from .unitedbusiness_nzp import UnitedBusinessNZPCarrier
 from .unitedbusiness_spl import UnitedBusinessSPLCarrier
 from .metafora import MetaforaNZPCarrier, MetaforaSPLCarrier
+from .royalmail import RoyalMailFlatsCarrier, RoyalMailLettersCarrier
 
 # Registry of available carriers
 CARRIER_REGISTRY = {
@@ -30,6 +31,8 @@ CARRIER_REGISTRY = {
     'United Business SPL ETOE': UnitedBusinessSPLCarrier,
     'Metafora 2026 - NZP': MetaforaNZPCarrier,
     'Metafora 2026 - SPL': MetaforaSPLCarrier,
+    'Royal Mail International 2026': RoyalMailFlatsCarrier,
+    'Royal Mail International 2026 - Ireland (P)': RoyalMailLettersCarrier,
 }
 
 
@@ -98,6 +101,12 @@ def get_carrier(carrier_name: str) -> BaseCarrier:
         # Default to ADS variant
         return CARRIER_REGISTRY['United Business ADS']()
     
+    # Check for Royal Mail International
+    if 'royal mail' in carrier_lower:
+        if 'ireland' in carrier_lower:
+            return CARRIER_REGISTRY['Royal Mail International 2026 - Ireland (P)']()
+        return CARRIER_REGISTRY['Royal Mail International 2026']()
+
     # Check for Metafora
     if 'metafora' in carrier_lower:
         if 'spl' in carrier_lower:

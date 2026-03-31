@@ -14,6 +14,7 @@ from carriers.spring import SpringCarrier
 from carriers.landmark import LandmarkCarrier
 from carriers.deutschepost import DeutschePostCarrier
 from carriers.metafora import MetaforaBaseCarrier
+from carriers.royalmail import RoyalMailBaseCarrier
 
 
 @dataclass
@@ -28,6 +29,7 @@ class ProcessingResult:
     po_number: str = ""
     additional_files: List[str] = field(default_factory=list)  # For carriers that generate multiple files
     deutschepost_data: Optional[object] = None  # For Deutsche Post carrier data
+    royalmail_data: Optional[object] = None  # For Royal Mail carrier data
 
 
 class ManifestEngine:
@@ -466,7 +468,56 @@ class ManifestEngine:
                 po_number=""
             )
     
-    def process_sheet(self, carrier_sheet_path: str, 
+    def _process_royalmail_carrier(self, carrier: RoyalMailBaseCarrier,
+                                       carrier_sheet_path: str) -> ProcessingResult:
+        """
+        Process Royal Mail International carrier — extract data for portal submission.
+
+        Like Deutsche Post, Royal Mail has no template. Data is extracted from the
+        carrier sheet and later submitted to the OBA portal.
+        """
+        errors = []
+
+        try:
+            output_path, extracted_data = carrier.process_carrier_sheet(
+                carrier_sheet_path,
+                self.output_dir,
+                log_callback=self.log_callback
+            )
+
+            if extracted_data.carrier_variant == 'flats':
+                self.log(f"  Flats: {extracted_data.flats_items} items, {extracted_data.flats_weight} kg")
+            else:
+                self.log(f"  Letters: {extracted_data.letters_items} items, {extracted_data.letters_weight} kg")
+
+            self.log(f"Saved: {os.path.basename(output_path)}")
+
+            total_items = extracted_data.flats_items + extracted_data.letters_items
+
+            return ProcessingResult(
+                carrier_name=carrier.carrier_name,
+                output_file=output_path,
+                records_processed=total_items,
+                records_failed=0,
+                errors=errors,
+                success=True,
+                po_number=extracted_data.po_number,
+                royalmail_data=extracted_data
+            )
+
+        except Exception as e:
+            errors.append(str(e))
+            return ProcessingResult(
+                carrier_name=carrier.carrier_name,
+                output_file="",
+                records_processed=0,
+                records_failed=0,
+                errors=errors,
+                success=False,
+                po_number=""
+            )
+
+    def process_sheet(self, carrier_sheet_path: str,
                       max_errors: int = 5) -> List[ProcessingResult]:
         """
         Process a carrier sheet, populating manifests for all carriers found.
@@ -522,7 +573,14 @@ class ManifestEngine:
             result = self._process_deutschepost_carrier(carrier, carrier_sheet_path)
             results.append(result)
             return results
-        
+
+        # Check for Royal Mail International - requires special handling (no template)
+        if 'royal mail' in carrier_lower:
+            carrier = get_carrier(carrier_name)
+            result = self._process_royalmail_carrier(carrier, carrier_sheet_path)
+            results.append(result)
+            return results
+
         # Process the carrier (standard flow)
         result = self.process_carrier(carrier_name, data, po_number, max_errors)
         results.append(result)

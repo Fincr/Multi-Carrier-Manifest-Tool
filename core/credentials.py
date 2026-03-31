@@ -85,6 +85,22 @@ def get_spring_credentials() -> PortalCredentials:
     )
 
 
+def get_royalmail_credentials() -> PortalCredentials:
+    """
+    Get Royal Mail International OBA portal credentials.
+
+    Environment variables:
+        ROYALMAIL_EMAIL: Login email
+        ROYALMAIL_PASSWORD: Login password
+        ROYALMAIL_CONTACT: Contact name for forms (optional)
+    """
+    return PortalCredentials(
+        email=os.environ.get('ROYALMAIL_EMAIL', ''),
+        password=os.environ.get('ROYALMAIL_PASSWORD', ''),
+        contact_name=os.environ.get('ROYALMAIL_CONTACT', 'Finlay Crawley'),
+    )
+
+
 def get_landmark_credentials() -> PortalCredentials:
     """
     Get Landmark/bpost portal credentials.
@@ -113,6 +129,7 @@ def validate_credentials(carrier: str) -> tuple[bool, str]:
         'deutschepost': get_deutschepost_credentials,
         'spring': get_spring_credentials,
         'landmark': get_landmark_credentials,
+        'royalmail': get_royalmail_credentials,
     }
     
     if carrier.lower() not in cred_funcs:

@@ -1096,6 +1096,7 @@ class ManifestToolApp:
         self.last_carrier_name = None  # Track which carrier was last processed
         self.last_po_number = None  # Track PO number for Spring upload
         self.last_deutschepost_data = None  # Track Deutsche Post extracted data for portal
+        self.last_royalmail_data = None  # Track Royal Mail extracted data for portal
 
         # Batch processing state
         self.batch_files = []  # List of (filepath, carrier_name) tuples
@@ -1218,7 +1219,7 @@ class ManifestToolApp:
         # Auto-upload checkbox (Spring, Landmark, Deutsche Post)
         self.auto_upload_check = ttk.Checkbutton(
             options_frame,
-            text="Auto-upload to portal (Spring/Landmark/Deutsche Post)",
+            text="Auto-upload to portal (Spring/Landmark/Deutsche Post/Royal Mail)",
             variable=self.auto_upload_var
         )
         self.auto_upload_check.grid(row=1, column=0, sticky="w", pady=(5, 0))
@@ -1502,6 +1503,7 @@ class ManifestToolApp:
         # Start progress bar
         self.progress.start()
         self.batch_results = []
+        self._batch_royalmail_data = None  # Reset Royal Mail batch accumulator
 
         # Run in background thread
         thread = threading.Thread(
@@ -1539,13 +1541,28 @@ class ManifestToolApp:
                     is_spring = 'spring' in carrier_name.lower()
                     is_landmark = 'landmark' in carrier_name.lower()
                     is_deutschepost = 'deutsche' in carrier_name.lower()
+                    is_royalmail = 'royal mail' in carrier_name.lower()
 
                     if self.auto_print_var.get() and not is_spring and not is_landmark:
                         self._do_print([results[0].output_file])
 
-                    # Handle auto-upload
-                    if self.auto_upload_var.get():
+                    # Handle auto-upload (Royal Mail deferred to batch completion)
+                    if self.auto_upload_var.get() and not is_royalmail:
                         self._handle_batch_upload(results, carrier_name, output_dir, is_spring, is_landmark, is_deutschepost)
+
+                    # Accumulate Royal Mail data for deferred combined upload
+                    if is_royalmail and hasattr(results[0], 'royalmail_data') and results[0].royalmail_data:
+                        from carriers.royalmail_portal import RoyalMailPortalInput
+                        rm_data = results[0].royalmail_data
+                        if not hasattr(self, '_batch_royalmail_data'):
+                            self._batch_royalmail_data = RoyalMailPortalInput(po_number=rm_data.po_number)
+                        # Merge this sheet's data into the combined input
+                        self._batch_royalmail_data.letters_items += rm_data.letters_items
+                        self._batch_royalmail_data.letters_weight_kg += rm_data.letters_weight
+                        self._batch_royalmail_data.flats_items += rm_data.flats_items
+                        self._batch_royalmail_data.flats_weight_kg += rm_data.flats_weight
+                        if not self._batch_royalmail_data.po_number:
+                            self._batch_royalmail_data.po_number = rm_data.po_number
 
                     self.batch_results.append({
                         'file': filename,
@@ -1570,6 +1587,12 @@ class ManifestToolApp:
                     'success': False,
                     'error': str(e)
                 })
+
+        # Handle deferred Royal Mail batch upload (combine both sheets into one portal session)
+        if self.auto_upload_var.get() and hasattr(self, '_batch_royalmail_data') and self._batch_royalmail_data:
+            self.root.after(0, self.log, "\n" + "-"*50)
+            self.root.after(0, self.log, "ROYAL MAIL BATCH UPLOAD (combined)")
+            self._upload_royalmail_blocking(self._batch_royalmail_data, output_dir)
 
         # Complete
         self.root.after(0, self.on_batch_complete)
@@ -1823,6 +1846,14 @@ Features:
 
 • United Business SPL ETOE
    Template: UBL_CP_Pre_Alert_SPL-ETOE.xlsx
+
+• Royal Mail International 2026 (Flats - Ireland)
+   Portal: Automatic OBA order submission
+   Product code: PS7
+
+• Royal Mail International 2026 - Ireland (P) (Letters)
+   Portal: Automatic OBA order submission
+   Product code: PS5
 """
 
         carriers_text = scrolledtext.ScrolledText(carriers_tab, wrap='word', font=('Consolas', 9))
@@ -1877,7 +1908,8 @@ Features:
         self.last_carrier_name = None
         self.last_po_number = None
         self.last_deutschepost_data = None
-        
+        self.last_royalmail_data = None
+
         # Run in background thread
         thread = threading.Thread(
             target=self.run_processing,
@@ -1927,12 +1959,15 @@ Features:
             # Store Deutsche Post data if available
             if hasattr(results[0], 'deutschepost_data') and results[0].deutschepost_data:
                 self.last_deutschepost_data = results[0].deutschepost_data
+            # Store Royal Mail data if available
+            if hasattr(results[0], 'royalmail_data') and results[0].royalmail_data:
+                self.last_royalmail_data = results[0].royalmail_data
         
         # Enable print button if we have output files
         if self.last_output_files:
             self.print_button.config(state='normal')
             # Enable upload button for Spring, Landmark, or Deutsche Post
-            if self.last_carrier_name and ('spring' in self.last_carrier_name.lower() or 'landmark' in self.last_carrier_name.lower() or 'deutsche' in self.last_carrier_name.lower()):
+            if self.last_carrier_name and ('spring' in self.last_carrier_name.lower() or 'landmark' in self.last_carrier_name.lower() or 'deutsche' in self.last_carrier_name.lower() or 'royal mail' in self.last_carrier_name.lower()):
                 self.upload_button.config(state='normal')
         
         # Summarise results
@@ -1984,14 +2019,22 @@ Features:
             self.log("AUTO-UPLOAD TO LANDMARK PORTAL")
             self._do_upload_landmark(self.last_output_files, self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
         
-        if (self.auto_upload_var.get() and 
-            self.last_output_files and 
+        if (self.auto_upload_var.get() and
+            self.last_output_files and
             is_deutschepost):
             self.log("\n" + "-"*50)
             self.log("AUTO-UPLOAD TO DEUTSCHE POST PORTAL")
             # For Deutsche Post, we need to extract weight and format from the carrier sheet
             self._do_upload_deutschepost(self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
-        
+
+        is_royalmail = self.last_carrier_name and 'royal mail' in self.last_carrier_name.lower()
+        if (self.auto_upload_var.get() and
+            self.last_output_files and
+            is_royalmail):
+            self.log("\n" + "-"*50)
+            self.log("AUTO-UPLOAD TO ROYAL MAIL OBA PORTAL")
+            self._do_upload_royalmail(self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
+
         if all_errors:
             self.status_var.set(f"Completed with {len(all_errors)} error(s)")
             
@@ -2085,33 +2128,38 @@ Features:
         is_spring = self.last_carrier_name and 'spring' in self.last_carrier_name.lower()
         is_landmark = self.last_carrier_name and 'landmark' in self.last_carrier_name.lower()
         is_deutschepost = self.last_carrier_name and 'deutsche' in self.last_carrier_name.lower()
-        
-        if not is_spring and not is_landmark and not is_deutschepost:
+        is_royalmail = self.last_carrier_name and 'royal mail' in self.last_carrier_name.lower()
+
+        if not is_spring and not is_landmark and not is_deutschepost and not is_royalmail:
             messagebox.showwarning(
                 "Upload Not Available",
-                "Upload to portal is only available for Spring, Landmark, and Deutsche Post manifests."
+                "Upload to portal is only available for Spring, Landmark, Deutsche Post, and Royal Mail manifests."
             )
             return
-        
+
         # Confirm upload
         file_list = "\n".join(f"• {os.path.basename(f)}" for f in self.last_output_files)
         if is_spring:
             portal_name = "MySpring"
         elif is_landmark:
             portal_name = "Landmark"
+        elif is_royalmail:
+            portal_name = "Royal Mail OBA"
         else:
             portal_name = "Deutsche Post"
-        
+
         if not messagebox.askyesno(
             "Confirm Upload",
             f"Upload the following to {portal_name} portal?\n\n{file_list}"
         ):
             return
-        
+
         if is_spring:
             self._do_upload_spring(self.last_output_files[0], self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
         elif is_landmark:
             self._do_upload_landmark(self.last_output_files, self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
+        elif is_royalmail:
+            self._do_upload_royalmail(self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
         else:
             self._do_upload_deutschepost(self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
     
@@ -2253,6 +2301,145 @@ Features:
         # Update UI on main thread
         self.root.after(0, self._on_upload_complete, success, message)
     
+    def _do_upload_royalmail(self, po_number: str = "", output_dir: str = "", auto_print: bool = True):
+        """Execute Royal Mail OBA portal submission in background thread."""
+        if not self.last_royalmail_data:
+            messagebox.showerror(
+                "Missing Data",
+                "Royal Mail data not available. Please re-process the carrier sheet."
+            )
+            return
+
+        self.progress.start()
+        self.status_var.set("Submitting to Royal Mail OBA portal...")
+        self.upload_button.config(state='disabled')
+
+        thread = threading.Thread(
+            target=self._upload_royalmail_thread,
+            args=(po_number, output_dir, auto_print),
+            daemon=True
+        )
+        thread.start()
+
+    def _upload_royalmail_thread(self, po_number: str = "", output_dir: str = "", auto_print: bool = True):
+        """Background Royal Mail portal task."""
+        from carriers.royalmail_portal import run_royalmail_upload, launch_edge_for_royalmail, RoyalMailPortalInput
+
+        def log_msg(msg):
+            self.root.after(0, self.log, msg)
+
+        data = self.last_royalmail_data
+
+        # Build portal input from extracted data
+        portal_input = RoyalMailPortalInput(
+            po_number=data.po_number,
+            flats_items=data.flats_items,
+            flats_weight_kg=data.flats_weight,
+            letters_items=data.letters_items,
+            letters_weight_kg=data.letters_weight,
+        )
+
+        log_msg("Submitting to Royal Mail OBA portal...")
+        log_msg(f"  PO Number: {data.po_number}")
+        if portal_input.has_letters:
+            log_msg(f"  Letters: {portal_input.letters_items} items, {portal_input.avg_letter_weight_grams}g avg")
+        if portal_input.has_flats:
+            log_msg(f"  Flats: {portal_input.flats_items} items, {portal_input.avg_flat_weight_grams}g avg")
+        log_msg(f"  Output folder: {output_dir}")
+
+        # Step 1: Launch Edge with remote debugging
+        log_msg("\nLaunching Edge browser...")
+        success, msg = launch_edge_for_royalmail(log_callback=log_msg)
+        if not success:
+            self.root.after(0, self._on_upload_complete, False, msg)
+            return
+
+        # Step 2: Prompt user to log in (dialog on main thread, wait for response)
+        login_event = asyncio.Event() if False else __import__('threading').Event()
+
+        def _show_login_dialog():
+            messagebox.showinfo(
+                "Royal Mail OBA Login",
+                "Edge has opened the Royal Mail login page.\n\n"
+                "Please log in to your OBA account:\n"
+                "1. Enter your email and password\n"
+                "2. Click 'Log in'\n"
+                "3. Click 'Access OBA'\n"
+                "4. Wait until you see the OBA dashboard\n\n"
+                "Then click OK to continue."
+            )
+            login_event.set()
+
+        self.root.after(0, _show_login_dialog)
+        login_event.wait(timeout=600)  # Wait up to 10 minutes for user to log in
+
+        if not login_event.is_set():
+            self.root.after(0, self._on_upload_complete, False, "Login timed out")
+            return
+
+        log_msg("  User confirmed login, connecting to portal...")
+
+        # Step 3: Run the portal automation
+        success, message = run_royalmail_upload(
+            portal_input=portal_input,
+            output_dir=output_dir,
+            auto_print=auto_print,
+            log_callback=log_msg
+        )
+
+        self.root.after(0, self._on_upload_complete, success, message)
+
+    def _upload_royalmail_blocking(self, portal_input, output_dir):
+        """Synchronous Royal Mail upload for batch mode (with auto-launch Edge)."""
+        from carriers.royalmail_portal import run_royalmail_upload, launch_edge_for_royalmail
+        import threading as _threading
+
+        def log_msg(msg):
+            self.root.after(0, self.log, msg)
+
+        try:
+            # Launch Edge
+            log_msg("Launching Edge for Royal Mail...")
+            success, msg = launch_edge_for_royalmail(log_callback=log_msg)
+            if not success:
+                log_msg(f"Royal Mail upload failed: {msg}")
+                return
+
+            # Prompt user to log in (on main thread)
+            login_event = _threading.Event()
+
+            def _show_login_dialog():
+                messagebox.showinfo(
+                    "Royal Mail OBA Login",
+                    "Edge has opened the Royal Mail login page.\n\n"
+                    "Please log in to your OBA account:\n"
+                    "1. Enter your email and password\n"
+                    "2. Click 'Log in'\n"
+                    "3. Click 'Access OBA'\n"
+                    "4. Wait until you see the OBA dashboard\n\n"
+                    "Then click OK to continue."
+                )
+                login_event.set()
+
+            self.root.after(0, _show_login_dialog)
+            login_event.wait(timeout=600)
+
+            if not login_event.is_set():
+                log_msg("Royal Mail upload: Login timed out")
+                return
+
+            log_msg("  User confirmed login, submitting order...")
+
+            success, msg = run_royalmail_upload(
+                portal_input=portal_input,
+                output_dir=output_dir,
+                auto_print=self.auto_print_var.get(),
+                log_callback=log_msg
+            )
+            log_msg(f"Royal Mail upload: {'OK' if success else 'FAILED'}")
+        except Exception as e:
+            log_msg(f"Royal Mail upload error: {e}")
+
     def _on_upload_complete(self, success: bool, message: str):
         """Handle upload completion."""
         self.progress.stop()
