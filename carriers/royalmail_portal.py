@@ -363,30 +363,35 @@ async def _confirm_and_save(page, frame, portal_input, output_dir, log, timeout_
     log("    Order confirmed")
 
     # Save the sales order confirmation as PDF.
-    # The confirmation content is in a frame. We open the frame URL directly
-    # in a new tab so we can print just the sales order (not the full portal).
+    # The confirmation lives inside a SAP portal frame. We extract the frame's
+    # full HTML (including styles), load it into a standalone page, and print
+    # that to PDF — producing the same clean output as the portal's Print button.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     pdf_filename = f"Royal_Mail_{portal_input.po_number}_{timestamp}.pdf"
     pdf_path = os.path.join(output_dir, pdf_filename)
 
     try:
-        # Get the confirmation frame's URL and open it in a new page
-        frame_url = frame.url
-        log(f"    Confirmation frame: {frame_url[:80]}")
+        # Extract the frame's complete HTML (document + inline styles)
+        frame_html = await frame.evaluate("() => document.documentElement.outerHTML")
 
+        # Open a new page and set its content to the extracted HTML
         new_page = await page.context.new_page()
-        await new_page.goto(frame_url, wait_until='domcontentloaded', timeout=timeout_ms)
-        await new_page.wait_for_timeout(3000)
+        await new_page.set_content(frame_html, wait_until='domcontentloaded')
+        await new_page.wait_for_timeout(1000)
 
-        # Use CDP printToPDF on the isolated frame page
-        cdp = await new_page.context.new_cdp_session(new_page)
+        # Use CDP printToPDF on the standalone page
         import base64
+        cdp = await new_page.context.new_cdp_session(new_page)
         result = await cdp.send("Page.printToPDF", {
             "printBackground": True,
-            "preferCSSPageSize": True,
+            "preferCSSPageSize": False,
             "landscape": False,
             "paperWidth": 8.27,   # A4
             "paperHeight": 11.69, # A4
+            "marginTop": 0.4,
+            "marginBottom": 0.4,
+            "marginLeft": 0.4,
+            "marginRight": 0.4,
         })
         await cdp.detach()
 
@@ -397,9 +402,8 @@ async def _confirm_and_save(page, frame, portal_input, output_dir, log, timeout_
 
         await new_page.close()
     except Exception as e:
-        log(f"    Frame PDF failed ({e}), trying full page fallback...")
+        log(f"    PDF generation failed ({e}), saving screenshot fallback...")
         try:
-            # Fallback: screenshot of the full page
             png_filename = f"Royal_Mail_{portal_input.po_number}_{timestamp}.png"
             pdf_path = os.path.join(output_dir, png_filename)
             await page.screenshot(path=pdf_path, full_page=True)
