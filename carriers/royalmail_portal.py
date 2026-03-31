@@ -299,11 +299,12 @@ async def _find_content_frame(page):
 
 
 async def _find_oba_page(browser):
-    """Find the OBA page across all browser contexts."""
+    """Find the OBA dashboard page (oba.royalmail.com, not royalmail.com/oba)."""
     for ctx in browser.contexts:
         for page in ctx.pages:
             url = page.url.lower()
-            if 'oba' in url and 'royalmail' in url:
+            # Must be on the actual OBA portal, not the royalmail.com intermediate pages
+            if 'oba.royalmail.com/irj/portal/oba' in url:
                 return page
     return None
 
@@ -325,11 +326,8 @@ async def _wait_for_oba_dashboard(browser, log, timeout_seconds=300):
                 try:
                     url = page.url.lower()
                     if 'oba.royalmail.com/irj/portal/oba' in url:
-                        # Verify the dashboard is loaded (not just redirecting)
-                        title = await page.title()
-                        if 'Online Business Account' in title or 'Manage orders' in title:
-                            log("    User logged in to OBA dashboard")
-                            return page
+                        log("    OBA dashboard detected")
+                        return page
                 except Exception:
                     continue
 
