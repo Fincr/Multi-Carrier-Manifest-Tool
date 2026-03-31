@@ -164,17 +164,22 @@ def launch_edge_for_royalmail(log_callback=None) -> tuple[bool, str]:
 
 async def _find_content_frame(page):
     """Find the main content frame in the SAP portal."""
+    # Check by URL pattern first (most reliable)
     for frame in page.frames:
         url = frame.url
         if 'getdealerfamily' in url or 'showbasket' in url or 'itemconfiguration' in url:
             return frame
-    # Fallback: look for frames with order-related content
+    # Fallback: look for frames with order-related or navigation content
     for frame in page.frames:
         try:
             body = frame.locator('body')
             if await body.count() > 0:
                 text = await body.inner_text()
-                if 'Create new Order' in text or 'Emanifest ID' in text:
+                if any(kw in text for kw in [
+                    'Create new Order', 'Emanifest ID', 'Choose an option',
+                    'Choose the site', 'Your customer accounts', 'Your accounts',
+                    'Manage your orders', 'Confirmed Sales Order',
+                ]):
                     return frame
         except Exception:
             continue
@@ -425,13 +430,24 @@ async def _submit_to_royalmail_portal_impl(
             frame = await _find_content_frame(oba_page)
 
             if not frame:
-                # Navigate through the dashboard
+                # Navigate through the dashboard — try to find posting location or navigation links
                 log("  Navigating to account...")
+
+                # Debug: list all frames to help diagnose
+                for idx, f in enumerate(oba_page.frames):
+                    try:
+                        furl = f.url[:80] if f.url else '(no url)'
+                        log(f"    Frame {idx}: {furl}")
+                    except Exception:
+                        pass
+
+                # Try clicking posting location in any frame
                 for f in oba_page.frames:
                     try:
                         link = f.locator(f'a:has-text("{POSTING_LOCATION}")').first
                         if await link.is_visible(timeout=2000):
                             await link.click()
+                            log(f"    Clicked posting location {POSTING_LOCATION}")
                             await oba_page.wait_for_timeout(5000)
                             frame = await _find_content_frame(oba_page)
                             break
@@ -439,7 +455,10 @@ async def _submit_to_royalmail_portal_impl(
                         continue
 
             if not frame:
-                return False, "Could not find OBA content frame. Please navigate to Orders > Manage orders."
+                # Take debug screenshot
+                screenshot_path = os.path.join(output_dir, "rm_debug_noframe.png")
+                await oba_page.screenshot(path=screenshot_path)
+                return False, f"Could not find OBA content frame. Check rm_debug_noframe.png"
 
             # Handle 'Choose an option' page
             body_text = await frame.locator('body').inner_text()
@@ -466,7 +485,9 @@ async def _submit_to_royalmail_portal_impl(
                         continue
 
             if not frame:
-                return False, "Could not navigate to order form"
+                screenshot_path = os.path.join(output_dir, "rm_debug_navigate.png")
+                await oba_page.screenshot(path=screenshot_path)
+                return False, f"Could not navigate to order form. Check rm_debug_navigate.png"
 
             # Create and configure the order
             success, error = await _create_order(oba_page, frame, portal_input, log, timeout_ms)
