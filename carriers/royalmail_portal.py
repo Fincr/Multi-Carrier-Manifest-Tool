@@ -372,11 +372,19 @@ async def _confirm_and_save(page, frame, portal_input, output_dir, log, timeout_
 
     try:
         # Extract the frame's complete HTML (document + inline styles)
-        frame_html = await frame.evaluate("() => document.documentElement.outerHTML")
+        # Inject a <base> tag so relative image URLs resolve against the OBA domain
+        frame_html = await frame.evaluate("""() => {
+            const html = document.documentElement.cloneNode(true);
+            const head = html.querySelector('head') || html;
+            const base = document.createElement('base');
+            base.href = 'https://www.oba.royalmail.com/';
+            head.insertBefore(base, head.firstChild);
+            return html.outerHTML;
+        }""")
 
         # Open a new page and set its content to the extracted HTML
         new_page = await page.context.new_page()
-        await new_page.set_content(frame_html, wait_until='domcontentloaded')
+        await new_page.set_content(frame_html, wait_until='networkidle')
         await new_page.wait_for_timeout(1000)
 
         # Use CDP printToPDF on the standalone page
