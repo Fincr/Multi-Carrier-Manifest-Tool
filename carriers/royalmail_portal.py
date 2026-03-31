@@ -202,58 +202,55 @@ async def _auto_login_to_oba(browser, log, timeout_ms=30000):
         except Exception:
             pass
 
-        # Check if already logged in (may have existing session)
-        if 'oba/view' in login_page.url.lower() or 'oba.royalmail.com' in login_page.url.lower():
-            log("    Already logged in")
-            # Check if we're already on the OBA dashboard
-            if 'oba.royalmail.com/irj/portal/oba' in login_page.url.lower():
-                return login_page, ""
-            # Need to click Access OBA
+        # Check if already on the OBA dashboard
+        if 'oba.royalmail.com/irj/portal/oba' in login_page.url.lower():
+            log("    Already on OBA dashboard")
+            return login_page, ""
+
+        # Detect page state: already logged in, or need to fill login form?
+        page_content = await login_page.content()
+        already_logged_in = 'You are logged in as' in page_content or 'Access OBA services' in page_content
+
+        if not already_logged_in:
+            # Need to fill login form
             try:
-                access_link = login_page.locator('a:has-text("Access OBA")').first
-                if await access_link.is_visible(timeout=5000):
-                    await access_link.click()
-                    await login_page.wait_for_timeout(15000)
-            except Exception:
-                pass
+                email_field = login_page.get_by_role('textbox', name='Email address')
+                if await email_field.is_visible(timeout=5000):
+                    await email_field.fill(creds.email)
+                    password_field = login_page.get_by_role('textbox', name='Password')
+                    await password_field.fill(creds.password)
+                    log("    Credentials entered")
 
-            # Wait for OBA dashboard
-            oba_page = await _wait_for_oba_dashboard(browser, log, timeout_seconds=30)
-            if oba_page:
-                return oba_page, ""
-            return None, "Could not reach OBA dashboard after clicking Access OBA"
+                    # Click Log in
+                    await login_page.locator('input[type="submit"][value="Log in"]').click()
+                    log("    Clicked Log in, waiting...")
+                    await login_page.wait_for_timeout(8000)
 
-        # Fill login form
+                    # Check for login errors
+                    content = await login_page.content()
+                    if 'invalid' in content.lower() or 'incorrect' in content.lower():
+                        return None, "Login failed - invalid email or password"
+                else:
+                    log("    Login form not visible, checking for other options...")
+            except Exception as e:
+                return None, f"Could not fill login form: {e}"
+
+        # At this point we're either logged in with a cached session or just logged in.
+        # Navigate through the two-step OBA access flow:
+        #   Step 1: Click "Access OBA services" (if present)
+        #   Step 2: Click "Access OBA" on the services page
+
+        # Step 1: "Access OBA services" button (shown when already logged in)
         try:
-            email_field = login_page.get_by_role('textbox', name='Email address')
-            await email_field.fill(creds.email)
-            password_field = login_page.get_by_role('textbox', name='Password')
-            await password_field.fill(creds.password)
-            log("    Credentials entered")
-        except Exception as e:
-            return None, f"Could not fill login form: {e}"
+            oba_services_btn = login_page.locator('a:has-text("Access OBA services")').first
+            if await oba_services_btn.is_visible(timeout=5000):
+                await oba_services_btn.click()
+                log("    Clicked Access OBA services")
+                await login_page.wait_for_timeout(5000)
+        except Exception:
+            pass
 
-        # Click Log in
-        try:
-            await login_page.locator('input[type="submit"][value="Log in"]').click()
-            log("    Clicked Log in, waiting for redirect...")
-            await login_page.wait_for_timeout(8000)
-        except Exception as e:
-            return None, f"Could not click login button: {e}"
-
-        # Check login result
-        current_url = login_page.url.lower()
-        if 'online-business-account' in current_url and 'destination' in current_url:
-            # Login may have failed — check for error text
-            try:
-                content = await login_page.content()
-                if 'invalid' in content.lower() or 'incorrect' in content.lower():
-                    return None, "Login failed — invalid email or password"
-            except Exception:
-                pass
-
-        # Click Access OBA
-        log("    Looking for Access OBA link...")
+        # Step 2: "Access OBA" link (on the OBA Services page)
         try:
             access_link = login_page.locator('a:has-text("Access OBA")').first
             if await access_link.is_visible(timeout=8000):
@@ -261,7 +258,7 @@ async def _auto_login_to_oba(browser, log, timeout_ms=30000):
                 log("    Clicked Access OBA, waiting for SSO redirect...")
                 await login_page.wait_for_timeout(15000)
             else:
-                return None, "Access OBA link not found after login"
+                return None, "Access OBA link not found"
         except Exception as e:
             return None, f"Failed to click Access OBA: {e}"
 
