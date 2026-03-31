@@ -362,21 +362,50 @@ async def _confirm_and_save(page, frame, portal_input, output_dir, log, timeout_
 
     log("    Order confirmed")
 
-    # Save confirmation page as PDF
+    # Save the sales order confirmation as PDF.
+    # The confirmation content is in a frame. We open the frame URL directly
+    # in a new tab so we can print just the sales order (not the full portal).
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     pdf_filename = f"Royal_Mail_{portal_input.po_number}_{timestamp}.pdf"
     pdf_path = os.path.join(output_dir, pdf_filename)
 
     try:
-        await page.pdf(path=pdf_path, format='A4', print_background=True)
+        # Get the confirmation frame's URL and open it in a new page
+        frame_url = frame.url
+        log(f"    Confirmation frame: {frame_url[:80]}")
+
+        new_page = await page.context.new_page()
+        await new_page.goto(frame_url, wait_until='domcontentloaded', timeout=timeout_ms)
+        await new_page.wait_for_timeout(3000)
+
+        # Use CDP printToPDF on the isolated frame page
+        cdp = await new_page.context.new_cdp_session(new_page)
+        import base64
+        result = await cdp.send("Page.printToPDF", {
+            "printBackground": True,
+            "preferCSSPageSize": True,
+            "landscape": False,
+            "paperWidth": 8.27,   # A4
+            "paperHeight": 11.69, # A4
+        })
+        await cdp.detach()
+
+        pdf_bytes = base64.b64decode(result["data"])
+        with open(pdf_path, "wb") as f:
+            f.write(pdf_bytes)
         log(f"    Saved: {pdf_filename}")
+
+        await new_page.close()
     except Exception as e:
-        # PDF generation may fail on CDP-connected browsers — fall back to screenshot
-        log(f"    PDF generation failed ({e}), saving screenshot instead...")
-        png_filename = f"Royal_Mail_{portal_input.po_number}_{timestamp}.png"
-        pdf_path = os.path.join(output_dir, png_filename)
-        await page.screenshot(path=pdf_path, full_page=True)
-        log(f"    Saved screenshot: {png_filename}")
+        log(f"    Frame PDF failed ({e}), trying full page fallback...")
+        try:
+            # Fallback: screenshot of the full page
+            png_filename = f"Royal_Mail_{portal_input.po_number}_{timestamp}.png"
+            pdf_path = os.path.join(output_dir, png_filename)
+            await page.screenshot(path=pdf_path, full_page=True)
+            log(f"    Saved screenshot: {png_filename}")
+        except Exception:
+            pass
 
     return True, "Order confirmed and saved", pdf_path
 
