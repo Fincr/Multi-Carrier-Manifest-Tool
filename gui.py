@@ -2354,32 +2354,7 @@ Features:
             self.root.after(0, self._on_upload_complete, False, msg)
             return
 
-        # Step 2: Prompt user to log in (dialog on main thread, wait for response)
-        login_event = asyncio.Event() if False else __import__('threading').Event()
-
-        def _show_login_dialog():
-            messagebox.showinfo(
-                "Royal Mail OBA Login",
-                "Edge has opened the Royal Mail login page.\n\n"
-                "Please log in to your OBA account:\n"
-                "1. Enter your email and password\n"
-                "2. Click 'Log in'\n"
-                "3. Click 'Access OBA'\n"
-                "4. Wait until you see the OBA dashboard\n\n"
-                "Then click OK to continue."
-            )
-            login_event.set()
-
-        self.root.after(0, _show_login_dialog)
-        login_event.wait(timeout=600)  # Wait up to 10 minutes for user to log in
-
-        if not login_event.is_set():
-            self.root.after(0, self._on_upload_complete, False, "Login timed out")
-            return
-
-        log_msg("  User confirmed login, connecting to portal...")
-
-        # Step 3: Run the portal automation
+        # Step 2: Run the portal automation (auto-login + order creation)
         success, message = run_royalmail_upload(
             portal_input=portal_input,
             output_dir=output_dir,
@@ -2405,30 +2380,7 @@ Features:
                 log_msg(f"Royal Mail upload failed: {msg}")
                 return
 
-            # Prompt user to log in (on main thread)
-            login_event = _threading.Event()
-
-            def _show_login_dialog():
-                messagebox.showinfo(
-                    "Royal Mail OBA Login",
-                    "Edge has opened the Royal Mail login page.\n\n"
-                    "Please log in to your OBA account:\n"
-                    "1. Enter your email and password\n"
-                    "2. Click 'Log in'\n"
-                    "3. Click 'Access OBA'\n"
-                    "4. Wait until you see the OBA dashboard\n\n"
-                    "Then click OK to continue."
-                )
-                login_event.set()
-
-            self.root.after(0, _show_login_dialog)
-            login_event.wait(timeout=600)
-
-            if not login_event.is_set():
-                log_msg("Royal Mail upload: Login timed out")
-                return
-
-            log_msg("  User confirmed login, submitting order...")
+            log_msg("  Auto-login and order submission...")
 
             success, msg = run_royalmail_upload(
                 portal_input=portal_input,

@@ -162,6 +162,121 @@ def launch_edge_for_royalmail(log_callback=None) -> tuple[bool, str]:
     return False, "Edge launched but remote debugging not responding. Try closing Edge manually and retry."
 
 
+async def _auto_login_to_oba(browser, log, timeout_ms=30000):
+    """
+    Automatically log in to Royal Mail OBA via the royalmail.com login page.
+
+    Fills credentials, clicks login, clicks Access OBA, and waits for
+    the OBA dashboard to load. Returns the OBA page on success.
+    """
+    creds = get_royalmail_credentials()
+    if not creds.is_valid():
+        return None, "Royal Mail credentials not configured. Set ROYALMAIL_EMAIL and ROYALMAIL_PASSWORD in .env"
+
+    # Find the login page (Edge was launched with the login URL)
+    login_page = None
+    for ctx in browser.contexts:
+        for page in ctx.pages:
+            if 'royalmail.com' in page.url.lower():
+                login_page = page
+                break
+        if login_page:
+            break
+
+    if not login_page:
+        return None, "Could not find Royal Mail page in Edge"
+
+    log("  Automating login...")
+
+    try:
+        # Wait for page to be ready
+        await login_page.wait_for_timeout(3000)
+
+        # Accept cookies if banner is present
+        try:
+            accept_btn = login_page.locator('button:has-text("Accept all")').first
+            if await accept_btn.is_visible(timeout=3000):
+                await accept_btn.click()
+                log("    Cookies accepted")
+                await login_page.wait_for_timeout(1000)
+        except Exception:
+            pass
+
+        # Check if already logged in (may have existing session)
+        if 'oba/view' in login_page.url.lower() or 'oba.royalmail.com' in login_page.url.lower():
+            log("    Already logged in")
+            # Check if we're already on the OBA dashboard
+            if 'oba.royalmail.com/irj/portal/oba' in login_page.url.lower():
+                return login_page, ""
+            # Need to click Access OBA
+            try:
+                access_link = login_page.locator('a:has-text("Access OBA")').first
+                if await access_link.is_visible(timeout=5000):
+                    await access_link.click()
+                    await login_page.wait_for_timeout(15000)
+            except Exception:
+                pass
+
+            # Wait for OBA dashboard
+            oba_page = await _wait_for_oba_dashboard(browser, log, timeout_seconds=30)
+            if oba_page:
+                return oba_page, ""
+            return None, "Could not reach OBA dashboard after clicking Access OBA"
+
+        # Fill login form
+        try:
+            email_field = login_page.get_by_role('textbox', name='Email address')
+            await email_field.fill(creds.email)
+            password_field = login_page.get_by_role('textbox', name='Password')
+            await password_field.fill(creds.password)
+            log("    Credentials entered")
+        except Exception as e:
+            return None, f"Could not fill login form: {e}"
+
+        # Click Log in
+        try:
+            await login_page.locator('input[type="submit"][value="Log in"]').click()
+            log("    Clicked Log in, waiting for redirect...")
+            await login_page.wait_for_timeout(8000)
+        except Exception as e:
+            return None, f"Could not click login button: {e}"
+
+        # Check login result
+        current_url = login_page.url.lower()
+        if 'online-business-account' in current_url and 'destination' in current_url:
+            # Login may have failed — check for error text
+            try:
+                content = await login_page.content()
+                if 'invalid' in content.lower() or 'incorrect' in content.lower():
+                    return None, "Login failed — invalid email or password"
+            except Exception:
+                pass
+
+        # Click Access OBA
+        log("    Looking for Access OBA link...")
+        try:
+            access_link = login_page.locator('a:has-text("Access OBA")').first
+            if await access_link.is_visible(timeout=8000):
+                await access_link.click()
+                log("    Clicked Access OBA, waiting for SSO redirect...")
+                await login_page.wait_for_timeout(15000)
+            else:
+                return None, "Access OBA link not found after login"
+        except Exception as e:
+            return None, f"Failed to click Access OBA: {e}"
+
+        # Wait for OBA dashboard to appear
+        oba_page = await _wait_for_oba_dashboard(browser, log, timeout_seconds=60)
+        if oba_page:
+            log("    Login successful")
+            return oba_page, ""
+
+        return None, "Timed out waiting for OBA dashboard after login"
+
+    except Exception as e:
+        return None, f"Auto-login failed: {e}"
+
+
 async def _find_content_frame(page):
     """Find the main content frame in the SAP portal."""
     # Check by URL pattern first (most reliable)
@@ -455,15 +570,16 @@ async def _submit_to_royalmail_portal_impl(
             except Exception as e:
                 return False, f"Could not connect to Edge browser: {e}"
 
-            # Find or wait for the OBA page
+            # Check if already on OBA dashboard
             oba_page = await _find_oba_page(browser)
 
             if not oba_page:
-                # User may still be logging in — wait
-                oba_page = await _wait_for_oba_dashboard(browser, log, timeout_seconds=300)
+                # Try automatic login
+                oba_page, login_error = await _auto_login_to_oba(browser, log, timeout_ms)
 
-            if not oba_page:
-                return False, "Timed out waiting for OBA login. Please log in and try again."
+                if not oba_page:
+                    log(f"    Auto-login failed: {login_error}")
+                    return False, f"Auto-login failed: {login_error}"
 
             log(f"    Connected to OBA: {oba_page.url}")
 
