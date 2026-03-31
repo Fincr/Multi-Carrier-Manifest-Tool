@@ -1554,7 +1554,7 @@ class ManifestToolApp:
                     if is_royalmail and hasattr(results[0], 'royalmail_data') and results[0].royalmail_data:
                         from carriers.royalmail_portal import RoyalMailPortalInput
                         rm_data = results[0].royalmail_data
-                        if not hasattr(self, '_batch_royalmail_data'):
+                        if self._batch_royalmail_data is None:
                             self._batch_royalmail_data = RoyalMailPortalInput(po_number=rm_data.po_number)
                         # Merge this sheet's data into the combined input
                         self._batch_royalmail_data.letters_items += rm_data.letters_items
