@@ -1847,13 +1847,9 @@ Features:
 • United Business SPL ETOE
    Template: UBL_CP_Pre_Alert_SPL-ETOE.xlsx
 
-• Royal Mail International 2026 (Flats - Ireland)
+• Royal Mail International 2026 (Ireland)
    Portal: Automatic OBA order submission
-   Product code: PS7
-
-• Royal Mail International 2026 - Ireland (P) (Letters)
-   Portal: Automatic OBA order submission
-   Product code: PS5
+   Product codes: PS5 (Letters), PS7 (Flats)
 """
 
         carriers_text = scrolledtext.ScrolledText(carriers_tab, wrap='word', font=('Consolas', 9))

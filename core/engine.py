@@ -14,7 +14,7 @@ from carriers.spring import SpringCarrier
 from carriers.landmark import LandmarkCarrier
 from carriers.deutschepost import DeutschePostCarrier
 from carriers.metafora import MetaforaBaseCarrier
-from carriers.royalmail import RoyalMailBaseCarrier
+from carriers.royalmail import RoyalMailCarrier
 
 
 @dataclass
@@ -468,7 +468,7 @@ class ManifestEngine:
                 po_number=""
             )
     
-    def _process_royalmail_carrier(self, carrier: RoyalMailBaseCarrier,
+    def _process_royalmail_carrier(self, carrier: RoyalMailCarrier,
                                        carrier_sheet_path: str) -> ProcessingResult:
         """
         Process Royal Mail International carrier — extract data for portal submission.
@@ -485,9 +485,9 @@ class ManifestEngine:
                 log_callback=self.log_callback
             )
 
-            if extracted_data.carrier_variant == 'flats':
+            if extracted_data.flats_items > 0:
                 self.log(f"  Flats: {extracted_data.flats_items} items, {extracted_data.flats_weight} kg")
-            else:
+            if extracted_data.letters_items > 0:
                 self.log(f"  Letters: {extracted_data.letters_items} items, {extracted_data.letters_weight} kg")
 
             self.log(f"Saved: {os.path.basename(output_path)}")

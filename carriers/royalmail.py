@@ -1,13 +1,9 @@
 """
-Royal Mail International 2026 carrier handlers.
+Royal Mail International 2026 carrier handler.
 
-Two variants share a single Royal Mail OBA portal:
-  - Royal Mail International 2026        → Flats only (Ireland)
-  - Royal Mail International 2026 - Ireland (P) → Letters only (Ireland)
-
-Both use the standard carrier sheet layout (B3=carrier, B4=PO, data from row 8).
-There is no manifest template — the manifest is downloaded from the portal.
-The portal has a single form where both Flats and Letters data are entered together.
+A single carrier sheet may contain both Flats and Letters rows for Ireland.
+Data is extracted, bucketed by format, and submitted to the Royal Mail OBA
+portal which generates the manifest. There is no manifest template.
 """
 
 import os
@@ -33,7 +29,6 @@ class RoyalMailData:
     flats_weight: float = 0.0      # total weight in KG
     letters_items: int = 0
     letters_weight: float = 0.0    # total weight in KG
-    carrier_variant: str = ""      # 'flats' or 'letters'
 
     def avg_weight_grams(self, format_type: str) -> int:
         """Average item weight in grams for a format (Letters or Flats).
@@ -47,19 +42,18 @@ class RoyalMailData:
         return 0
 
 
-class RoyalMailBaseCarrier(BaseCarrier):
+class RoyalMailCarrier(BaseCarrier):
     """
-    Base handler for Royal Mail International 2026 carriers.
+    Handler for Royal Mail International 2026.
 
     Like Deutsche Post, this carrier has no manifest template.
     Data is extracted from the carrier sheet and submitted to the
     Royal Mail OBA portal, which generates the manifest.
+    A single sheet may contain both Flats and Letters rows.
     """
 
-    carrier_name = ""
+    carrier_name = "Royal Mail International 2026"
     template_filename = ""  # No template — portal generates the manifest
-    expected_format = ""    # Subclasses set to 'Flats' or 'Letters'
-    variant_key = ""        # Subclasses set to 'flats' or 'letters'
 
     # Ireland country name variations
     IRELAND_NAMES = {
@@ -129,10 +123,12 @@ class RoyalMailBaseCarrier(BaseCarrier):
             if val:
                 headers[str(val).strip()] = col
 
-        total_items = 0
-        total_weight = 0.0
+        flats_items = 0
+        flats_weight = 0.0
+        letters_items = 0
+        letters_weight = 0.0
         non_ireland_countries = []
-        unexpected_formats = []
+        unknown_formats = []
 
         row = 9
         while row <= ws.max_row:
@@ -151,12 +147,7 @@ class RoyalMailBaseCarrier(BaseCarrier):
             if mapped_country.lower() not in self.IRELAND_NAMES:
                 non_ireland_countries.append(country)
 
-            # Validate format matches expected
-            normalised_format = self.normalise_format(format_val)
-            if normalised_format != self.expected_format:
-                unexpected_formats.append(format_val)
-
-            # Sum totals
+            # Parse numeric values
             try:
                 items = int(items_val) if items_val not in (None, '', ' ') else 0
             except (ValueError, TypeError):
@@ -167,8 +158,17 @@ class RoyalMailBaseCarrier(BaseCarrier):
             except (ValueError, TypeError):
                 weight = 0.0
 
-            total_items += items
-            total_weight += weight
+            # Bucket by format
+            normalised_format = self.normalise_format(format_val)
+            if normalised_format == 'Flats':
+                flats_items += items
+                flats_weight += weight
+            elif normalised_format == 'Letters':
+                letters_items += items
+                letters_weight += weight
+            else:
+                unknown_formats.append(format_val)
+
             row += 1
 
         # Log warnings
@@ -176,22 +176,18 @@ class RoyalMailBaseCarrier(BaseCarrier):
             unique = set(non_ireland_countries)
             log(f"  ⚠ Non-Ireland countries found: {', '.join(unique)}")
 
-        if unexpected_formats:
-            unique = set(unexpected_formats)
-            log(f"  ⚠ Unexpected formats for {self.expected_format}-only carrier: {', '.join(unique)}")
+        if unknown_formats:
+            unique = set(unknown_formats)
+            log(f"  ⚠ Unrecognised formats: {', '.join(unique)}")
 
         # Build result data
         data = RoyalMailData(
             po_number=po_number,
-            carrier_variant=self.variant_key,
+            flats_items=flats_items,
+            flats_weight=round(flats_weight, 3),
+            letters_items=letters_items,
+            letters_weight=round(letters_weight, 3),
         )
-
-        if self.variant_key == 'flats':
-            data.flats_items = total_items
-            data.flats_weight = round(total_weight, 3)
-        else:
-            data.letters_items = total_items
-            data.letters_weight = round(total_weight, 3)
 
         # Save carrier sheet to output directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -204,17 +200,3 @@ class RoyalMailBaseCarrier(BaseCarrier):
         return output_path, data
 
 
-class RoyalMailFlatsCarrier(RoyalMailBaseCarrier):
-    """Handler for Royal Mail International 2026 (Flats only, Ireland)."""
-
-    carrier_name = "Royal Mail International 2026"
-    expected_format = "Flats"
-    variant_key = "flats"
-
-
-class RoyalMailLettersCarrier(RoyalMailBaseCarrier):
-    """Handler for Royal Mail International 2026 - Ireland (P) (Letters only, Ireland)."""
-
-    carrier_name = "Royal Mail International 2026 - Ireland (P)"
-    expected_format = "Letters"
-    variant_key = "letters"
