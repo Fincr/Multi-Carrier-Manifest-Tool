@@ -39,6 +39,14 @@ PRODUCT_CODE_FLATS = "PS7"
 REGION = "EUROPEAN UNION"
 COUNTRY = "IRELAND (REPUBLIC OF)"
 
+# Edge 136+ ignores --remote-debugging-port on the default user profile
+# (Chromium security change), so CDP must use a dedicated profile directory.
+# Persistent so the OBA login session is cached between runs.
+EDGE_PROFILE_DIR = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+    "MultiCarrierManifestTool", "edge-oba-profile"
+)
+
 # Edge executable paths (checked in order)
 EDGE_PATHS = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -138,10 +146,12 @@ def launch_edge_for_royalmail(log_callback=None) -> tuple[bool, str]:
     # Launch Edge with remote debugging
     log("  Launching Edge with remote debugging...")
     try:
+        os.makedirs(EDGE_PROFILE_DIR, exist_ok=True)
         subprocess.Popen(
             [
                 edge_path,
                 f"--remote-debugging-port={CDP_PORT}",
+                f"--user-data-dir={EDGE_PROFILE_DIR}",
                 "--no-first-run",
                 "--no-default-browser-check",
                 OBA_LOGIN_URL,
