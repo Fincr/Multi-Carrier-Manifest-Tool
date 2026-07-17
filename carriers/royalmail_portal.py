@@ -27,7 +27,6 @@ from core.credentials import get_royalmail_credentials
 
 # Portal constants
 OBA_LOGIN_URL = "https://www.royalmail.com/discounts-payment/credit-account/online-business-account"
-POSTING_LOCATION = "9000227875"
 CDP_PORT = 9222
 CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 
@@ -218,7 +217,12 @@ async def _auto_login_to_oba(browser, log, timeout_ms=30000):
             return login_page, ""
 
         # Detect page state: already logged in, or need to fill login form?
-        page_content = await login_page.content()
+        try:
+            page_content = await login_page.content()
+        except Exception:
+            # Page mid-navigation; treat as not logged in — the form-visibility
+            # check below sorts out the real state.
+            page_content = ''
         already_logged_in = 'You are logged in as' in page_content or 'Access OBA services' in page_content
 
         if not already_logged_in:
@@ -236,10 +240,22 @@ async def _auto_login_to_oba(browser, log, timeout_ms=30000):
                     log("    Clicked Log in, waiting...")
                     await login_page.wait_for_timeout(8000)
 
-                    # Check for login errors
-                    content = await login_page.content()
-                    if 'invalid' in content.lower() or 'incorrect' in content.lower():
-                        return None, "Login failed - invalid email or password"
+                    # Check for login errors in the VISIBLE text only — the raw
+                    # HTML always contains 'invalid' (aria-invalid attributes),
+                    # which used to cause false 'invalid email or password'
+                    # reports. Report the actual on-screen error line.
+                    try:
+                        visible_text = await login_page.locator('body').inner_text()
+                    except Exception:
+                        visible_text = ''  # page navigating away = login accepted
+                    error_keywords = (
+                        'invalid', 'incorrect',
+                        'check that you have a valid online business account',
+                    )
+                    for line in visible_text.splitlines():
+                        stripped = line.strip()
+                        if stripped and any(kw in stripped.lower() for kw in error_keywords):
+                            return None, f"Login failed: {stripped[:200]}"
                 else:
                     log("    Login form not visible, checking for other options...")
             except Exception as e:
@@ -299,7 +315,7 @@ async def _find_content_frame(page):
                 text = await body.inner_text()
                 if any(kw in text for kw in [
                     'Create new Order', 'Emanifest ID', 'Choose an option',
-                    'Choose the site', 'Your customer accounts', 'Your accounts',
+                    'Your customer accounts', 'Your accounts',
                     'Manage your orders', 'Confirmed Sales Order',
                 ]):
                     return frame
@@ -575,124 +591,107 @@ async def _submit_to_royalmail_portal_impl(
             except Exception as e:
                 return False, f"Could not connect to Edge browser: {e}"
 
-            # Check if already on OBA dashboard
-            oba_page = await _find_oba_page(browser)
-
-            if not oba_page:
-                # Try automatic login
-                oba_page, login_error = await _auto_login_to_oba(browser, log, timeout_ms)
+            oba_page = None
+            try:
+                # Check if already on OBA dashboard
+                oba_page = await _find_oba_page(browser)
 
                 if not oba_page:
-                    log(f"    Auto-login failed: {login_error}")
-                    return False, f"Auto-login failed: {login_error}"
+                    # Try automatic login
+                    oba_page, login_error = await _auto_login_to_oba(browser, log, timeout_ms)
 
-            log(f"    Connected to OBA: {oba_page.url}")
+                    if not oba_page:
+                        log(f"    Auto-login failed: {login_error}")
+                        return False, f"Auto-login failed: {login_error}"
 
-            # Find the content frame
-            frame = await _find_content_frame(oba_page)
+                log(f"    Connected to OBA: {oba_page.url}")
 
-            if not frame:
-                # Navigate through the dashboard — try to find posting location or navigation links
-                log("  Navigating to account...")
+                # Find the content frame
+                frame = await _find_content_frame(oba_page)
 
-                # Debug: list all frames to help diagnose
-                for idx, f in enumerate(oba_page.frames):
+                if not frame:
+                    for idx, f in enumerate(oba_page.frames):
+                        try:
+                            log(f"    Frame {idx}: {f.url[:80] if f.url else '(no url)'}")
+                        except Exception:
+                            pass
+                    screenshot_path = os.path.join(output_dir, "rm_debug_noframe.png")
+                    await oba_page.screenshot(path=screenshot_path)
+                    return False, "Could not find OBA content frame. Check rm_debug_noframe.png"
+
+                # Handle 'Choose an option' page: 'Your accounts' (exact — the page
+                # also has a 'Your customer accounts' link) goes straight to the
+                # 'Manage your orders' page since the July 2026 portal change.
+                body_text = await frame.locator('body').inner_text()
+                if 'Choose an option' in body_text:
+                    log("  Selecting 'Your accounts'...")
+                    accounts_link = frame.get_by_role("link", name="Your accounts", exact=True)
+                    if await accounts_link.count() == 0:
+                        accounts_link = frame.locator('a:has-text("Your accounts")')
+                    await accounts_link.first.click()
+                    await oba_page.wait_for_timeout(5000)
+                    frame = await _find_content_frame(oba_page)
+
+                if not frame:
+                    screenshot_path = os.path.join(output_dir, "rm_debug_navigate.png")
+                    await oba_page.screenshot(path=screenshot_path)
+                    return False, "Could not navigate to order form. Check rm_debug_navigate.png"
+
+                # Create and configure the order
+                success, error = await _create_order(oba_page, frame, portal_input, log, timeout_ms)
+                if not success:
+                    screenshot_path = os.path.join(output_dir, "rm_debug_order.png")
+                    await oba_page.screenshot(path=screenshot_path)
+                    return False, f"Order creation failed: {error}"
+
+                # Re-find frame for confirmation
+                frame = await _find_content_frame(oba_page)
+                if not frame:
+                    return False, "Lost content frame before confirmation"
+
+                # Confirm and save
+                success, message, pdf_path = await _confirm_and_save(
+                    oba_page, frame, portal_input, output_dir, log, timeout_ms
+                )
+
+                if not success:
+                    return False, message
+
+                downloaded_file = pdf_path
+
+                # Print if enabled — reuse the app's print function (SumatraPDF > Adobe /t > fallback)
+                if auto_print and downloaded_file and os.path.exists(downloaded_file):
+                    log("  Printing confirmation...")
+                    from gui import print_pdf_file
+                    print_success, print_msg = print_pdf_file(downloaded_file)
+                    if print_success:
+                        log(f"  {print_msg}")
+                        return True, "Order confirmed, saved and printed successfully"
+                    else:
+                        log(f"  Print issue: {print_msg}")
+                        return True, f"Order confirmed and saved. Print failed: {print_msg}"
+                elif downloaded_file:
+                    return True, "Order confirmed and saved successfully"
+                else:
+                    return True, message
+
+            except Exception as e:
+                # Capture crash evidence while the CDP connection is still open
+                # (outside this block Playwright has shut down and the page is gone)
+                message = f"Portal automation failed: {e}"
+                if oba_page:
                     try:
-                        furl = f.url[:80] if f.url else '(no url)'
-                        log(f"    Frame {idx}: {furl}")
+                        screenshot_path = os.path.join(output_dir, "rm_debug_crash.png")
+                        await oba_page.screenshot(path=screenshot_path)
+                        for idx, f in enumerate(oba_page.frames):
+                            try:
+                                log(f"    Frame {idx}: {f.url[:100] if f.url else '(no url)'}")
+                            except Exception:
+                                pass
+                        message += " (see rm_debug_crash.png)"
                     except Exception:
                         pass
-
-                # Try clicking posting location in any frame
-                for f in oba_page.frames:
-                    try:
-                        link = f.locator(f'a:has-text("{POSTING_LOCATION}")').first
-                        if await link.is_visible(timeout=2000):
-                            await link.click()
-                            log(f"    Clicked posting location {POSTING_LOCATION}")
-                            await oba_page.wait_for_timeout(5000)
-                            frame = await _find_content_frame(oba_page)
-                            break
-                    except Exception:
-                        continue
-
-            if not frame:
-                # Take debug screenshot
-                screenshot_path = os.path.join(output_dir, "rm_debug_noframe.png")
-                await oba_page.screenshot(path=screenshot_path)
-                return False, f"Could not find OBA content frame. Check rm_debug_noframe.png"
-
-            # Handle 'Choose an option' page: 'Your accounts' (exact — the page
-            # also has a 'Your customer accounts' link) goes straight to the
-            # 'Manage your orders' page since the July 2026 portal change.
-            body_text = await frame.locator('body').inner_text()
-            if 'Choose an option' in body_text:
-                log("  Selecting 'Your accounts'...")
-                accounts_link = frame.get_by_role("link", name="Your accounts", exact=True)
-                if await accounts_link.count() == 0:
-                    accounts_link = frame.locator('a:has-text("Your accounts")')
-                await accounts_link.first.click()
-                await oba_page.wait_for_timeout(5000)
-                frame = await _find_content_frame(oba_page)
-                body_text = await frame.locator('body').inner_text() if frame else ''
-
-            # Handle 'Choose the site' page (pre-July-2026 flow; kept as a
-            # fallback in case some accounts still see it)
-            if 'Choose the site' in body_text:
-                log(f"  Selecting posting location {POSTING_LOCATION}...")
-                for f in oba_page.frames:
-                    try:
-                        loc_link = f.locator(f'a:has-text("{POSTING_LOCATION}")').first
-                        if await loc_link.is_visible(timeout=2000):
-                            await loc_link.click()
-                            await oba_page.wait_for_timeout(5000)
-                            frame = await _find_content_frame(oba_page)
-                            break
-                    except Exception:
-                        continue
-
-            if not frame:
-                screenshot_path = os.path.join(output_dir, "rm_debug_navigate.png")
-                await oba_page.screenshot(path=screenshot_path)
-                return False, f"Could not navigate to order form. Check rm_debug_navigate.png"
-
-            # Create and configure the order
-            success, error = await _create_order(oba_page, frame, portal_input, log, timeout_ms)
-            if not success:
-                screenshot_path = os.path.join(output_dir, "rm_debug_order.png")
-                await oba_page.screenshot(path=screenshot_path)
-                return False, f"Order creation failed: {error}"
-
-            # Re-find frame for confirmation
-            frame = await _find_content_frame(oba_page)
-            if not frame:
-                return False, "Lost content frame before confirmation"
-
-            # Confirm and save
-            success, message, pdf_path = await _confirm_and_save(
-                oba_page, frame, portal_input, output_dir, log, timeout_ms
-            )
-
-            if not success:
                 return False, message
-
-            downloaded_file = pdf_path
-
-            # Print if enabled — reuse the app's print function (SumatraPDF > Adobe /t > fallback)
-            if auto_print and downloaded_file and os.path.exists(downloaded_file):
-                log("  Printing confirmation...")
-                from gui import print_pdf_file
-                print_success, print_msg = print_pdf_file(downloaded_file)
-                if print_success:
-                    log(f"  {print_msg}")
-                    return True, "Order confirmed, saved and printed successfully"
-                else:
-                    log(f"  Print issue: {print_msg}")
-                    return True, f"Order confirmed and saved. Print failed: {print_msg}"
-            elif downloaded_file:
-                return True, "Order confirmed and saved successfully"
-            else:
-                return True, message
 
     except Exception as e:
         return False, f"Portal automation failed: {str(e)}"
