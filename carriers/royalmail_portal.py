@@ -622,17 +622,22 @@ async def _submit_to_royalmail_portal_impl(
                 await oba_page.screenshot(path=screenshot_path)
                 return False, f"Could not find OBA content frame. Check rm_debug_noframe.png"
 
-            # Handle 'Choose an option' page
+            # Handle 'Choose an option' page: 'Your accounts' (exact — the page
+            # also has a 'Your customer accounts' link) goes straight to the
+            # 'Manage your orders' page since the July 2026 portal change.
             body_text = await frame.locator('body').inner_text()
             if 'Choose an option' in body_text:
                 log("  Selecting 'Your accounts'...")
-                accounts_link = frame.locator('a:has-text("Your accounts")').first
-                await accounts_link.click()
+                accounts_link = frame.get_by_role("link", name="Your accounts", exact=True)
+                if await accounts_link.count() == 0:
+                    accounts_link = frame.locator('a:has-text("Your accounts")')
+                await accounts_link.first.click()
                 await oba_page.wait_for_timeout(5000)
                 frame = await _find_content_frame(oba_page)
                 body_text = await frame.locator('body').inner_text() if frame else ''
 
-            # Handle 'Choose the site' page
+            # Handle 'Choose the site' page (pre-July-2026 flow; kept as a
+            # fallback in case some accounts still see it)
             if 'Choose the site' in body_text:
                 log(f"  Selecting posting location {POSTING_LOCATION}...")
                 for f in oba_page.frames:
