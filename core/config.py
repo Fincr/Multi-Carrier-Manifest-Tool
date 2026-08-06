@@ -33,7 +33,7 @@ class AppConfig:
     pdf_close_delay_seconds: int = 7
     
     # Processing settings
-    max_errors_before_stop: int = 5
+    max_errors_before_stop: int = 10
     
     # Output settings
     default_output_dir: str = "U:\\Erith\\Hailey Road\\International Ops\\Pre-Alerts\\Dispatch #1"

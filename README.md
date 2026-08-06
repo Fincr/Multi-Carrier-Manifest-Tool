@@ -384,7 +384,7 @@ Settings are stored in `config.json`:
   "portal_retry_count": 2,
   "portal_stage_retry_count": 2,
   "pdf_close_delay_seconds": 7,
-  "max_errors_before_stop": 5,
+  "max_errors_before_stop": 10,
   "default_output_dir": "U:\\Erith\\Hailey Road\\International Ops\\Pre-Alerts\\Dispatch #1"
 }
 ```

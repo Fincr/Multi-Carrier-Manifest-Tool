@@ -98,7 +98,7 @@ class ManifestEngine:
         return {'default': df}
     
     def process_carrier(self, carrier_name: str, data: pd.DataFrame, 
-                       po_number: str, max_errors: int = 5) -> ProcessingResult:
+                       po_number: str, max_errors: int = 10) -> ProcessingResult:
         """
         Process data for a single carrier.
         
@@ -230,7 +230,7 @@ class ManifestEngine:
     
     def _process_spring_carrier(self, carrier: SpringCarrier, data: pd.DataFrame,
                                  po_number: str, template_path: str, 
-                                 max_errors: int = 5) -> ProcessingResult:
+                                 max_errors: int = 10) -> ProcessingResult:
         """
         Process Spring carrier - generates order lines instead of populating cells.
         """
@@ -298,7 +298,7 @@ class ManifestEngine:
     
     def _process_landmark_carrier(self, carrier: LandmarkCarrier, data: pd.DataFrame,
                                    po_number: str, iso_code_path: str,
-                                   max_errors: int = 5) -> ProcessingResult:
+                                   max_errors: int = 10) -> ProcessingResult:
         """
         Process Landmark Global carrier - generates CSV upload files.
         
@@ -518,7 +518,7 @@ class ManifestEngine:
             )
 
     def process_sheet(self, carrier_sheet_path: str,
-                      max_errors: int = 5) -> List[ProcessingResult]:
+                      max_errors: int = 10) -> List[ProcessingResult]:
         """
         Process a carrier sheet, populating manifests for all carriers found.
         
