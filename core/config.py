@@ -10,6 +10,11 @@ from dataclasses import dataclass, asdict
 from typing import Optional
 
 
+# Bump this whenever a default changes in a way that existing config.json
+# files must pick up, and add a matching branch to AppConfig._migrate().
+CURRENT_CONFIG_VERSION = 1
+
+
 # Config file location (same directory as the main script)
 def get_config_path() -> str:
     """Get path to config.json in the application directory."""
@@ -20,7 +25,10 @@ def get_config_path() -> str:
 @dataclass
 class AppConfig:
     """Application configuration with defaults."""
-    
+
+    # Schema version of this config - see CURRENT_CONFIG_VERSION
+    config_version: int = CURRENT_CONFIG_VERSION
+
     # Printer settings
     printer_name: str = "\\\\print01.citipost.co.uk\\KT02"
     
@@ -44,31 +52,59 @@ class AppConfig:
         with open(path, 'w') as f:
             json.dump(asdict(self), f, indent=2)
     
+    def _migrate(self, from_version: int):
+        """
+        Apply default changes that an existing config.json must pick up.
+
+        Each block only moves installs still sitting on the superseded
+        default, so a value the user deliberately chose is left alone.
+        """
+        if from_version < 1:
+            # v1: "max errors before stop" default raised from 5 to 10
+            if self.max_errors_before_stop == 5:
+                self.max_errors_before_stop = 10
+
     @classmethod
     def load(cls, path: Optional[str] = None) -> 'AppConfig':
         """
         Load configuration from JSON file.
         Returns default config if file doesn't exist or is invalid.
+
+        Configs written before CURRENT_CONFIG_VERSION are migrated and
+        written back, so the upgrade happens once rather than every launch.
         """
         path = path or get_config_path()
-        
+
         if not os.path.exists(path):
             return cls()
-        
+
         try:
             with open(path, 'r') as f:
                 data = json.load(f)
-            
+
             # Only use known fields, ignore unknown ones
             known_fields = {f.name for f in cls.__dataclass_fields__.values()}
             filtered_data = {k: v for k, v in data.items() if k in known_fields}
-            
-            return cls(**filtered_data)
-        
+
+            config = cls(**filtered_data)
+
         except (json.JSONDecodeError, TypeError, KeyError) as e:
             # Invalid config file - return defaults
             print(f"Warning: Could not load config file: {e}")
             return cls()
+
+        # Configs predating versioning have no marker, so treat them as v0
+        stored_version = data.get("config_version", 0)
+        if stored_version < CURRENT_CONFIG_VERSION:
+            config._migrate(stored_version)
+            config.config_version = CURRENT_CONFIG_VERSION
+            try:
+                config.save(path)
+            except OSError as e:
+                # Keep the migrated values in memory; retry next launch
+                print(f"Warning: Could not save migrated config file: {e}")
+
+        return config
 
 
 def get_available_printers() -> list[str]:

@@ -379,6 +379,7 @@ Settings are stored in `config.json`:
 
 ```json
 {
+  "config_version": 1,
   "printer_name": "\\\\print01.citipost.co.uk\\KT02",
   "portal_timeout_ms": 30000,
   "portal_retry_count": 2,
@@ -388,6 +389,11 @@ Settings are stored in `config.json`:
   "default_output_dir": "U:\\Erith\\Hailey Road\\International Ops\\Pre-Alerts\\Dispatch #1"
 }
 ```
+
+`config_version` tracks the settings schema. When the app starts and finds a
+config older than the current version, it upgrades changed defaults in place
+and writes the file back. Values you have deliberately changed are preserved —
+only settings still sitting on a superseded default are moved.
 
 ### Default Paths
 - **Output Directory**: `U:\Erith\Hailey Road\International Ops\Pre-Alerts\Dispatch #1`
