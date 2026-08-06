@@ -4,7 +4,7 @@ Deutsche Post portal automation.
 Handles the Deutsche Post business portal workflow:
 1. Login to portal
 2. Click Ship in navigation
-3. Click "Prepare Airway Bills" button
+3. Click "Print Paperwork" button
 4. Click "Print Airway Bill" button
 5. Fill form with manifest details
 6. Click "Create" and download manifest PDF
@@ -161,14 +161,18 @@ async def _upload_to_deutschepost_portal_impl(
                 await page.wait_for_load_state("networkidle", timeout=timeout_ms)
                 await page.wait_for_timeout(2000)
                 
-                # Step 2: Click "Prepare Airway Bills" button
-                log("  Clicking Prepare Airway Bills...")
+                # Step 2: Click "Print Paperwork" button (in the Paperwork panel).
+                # Older portal versions used a "Prepare Airway Bills" button here - kept as fallback.
+                log("  Clicking Print Paperwork...")
                 awb_button_selectors = [
+                    'input[value="Print Paperwork"]',
+                    'button:has-text("Print Paperwork")',
+                    'a:has-text("Print Paperwork")',
                     'input[value="Prepare Airway Bills"]',
                     'button:has-text("Prepare Airway Bills")',
                     'a:has-text("Prepare Airway Bills")',
                 ]
-                
+
                 clicked = False
                 for selector in awb_button_selectors:
                     try:
@@ -181,7 +185,7 @@ async def _upload_to_deutschepost_portal_impl(
                                 if tag in ['input', 'button', 'a']:
                                     await el.click()
                                     clicked = True
-                                    log("    ✓ Clicked Prepare Airway Bills")
+                                    log("    ✓ Clicked Print Paperwork")
                                     break
                         if clicked:
                             break
@@ -192,7 +196,7 @@ async def _upload_to_deutschepost_portal_impl(
                     screenshot_path = os.path.join(output_dir, "dp_debug_prepare_awb.png")
                     await page.screenshot(path=screenshot_path)
                     await browser.close()
-                    return False, "Could not find Prepare Airway Bills button. Check dp_debug_prepare_awb.png"
+                    return False, "Could not find Print Paperwork button. Check dp_debug_prepare_awb.png"
                 
                 await page.wait_for_load_state("networkidle", timeout=timeout_ms)
                 await page.wait_for_timeout(2000)

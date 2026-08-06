@@ -9,7 +9,7 @@ Deutsche Post uses a simpler workflow:
 
 Portal workflow:
 - Login to portal
-- Navigate: Ship > Prepare Airway Bills > Print Airway Bill
+- Navigate: Ship > Print Paperwork > Print Airway Bill
 - Fill form: Contact name, Job reference (PO), Item format, Total weight
 - Submit and download manifest PDF
 """
