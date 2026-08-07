@@ -14,7 +14,7 @@ from typing import Optional
 
 # Mapping from filename patterns to canonical carrier names
 CARRIER_PATTERNS = {
-    r"^Air_Business": "Air Business",
+    r"^Air[_ ]Business": "Air Business",
     r"^Asendia": "Asendia 2026",
     r"^Deutsche_Post|^Deutsche Post": "Deutsche Post",
     r"^Landmark_Economy": "Landmark Global",
@@ -48,10 +48,22 @@ def extract_date(filename: str) -> str | None:
 
 
 def extract_po_number(filename: str) -> str | None:
-    """Extract PO number from filename (5-digit number)."""
+    """
+    Extract PO number from filename.
+
+    Two naming conventions are in use:
+      - Our own manifests:  Carrier_..._12345_20260807_132359.xlsx
+      - Supplied manifests: Carrier ... (688663).xlsx  (e.g. Air Business)
+    """
     match = re.search(r"_(\d{5})_", filename)
     if match:
         return match.group(1)
+
+    # Fallback: job number in parentheses
+    match = re.search(r"\((\d{4,7})\)", filename)
+    if match:
+        return match.group(1)
+
     return None
 
 
