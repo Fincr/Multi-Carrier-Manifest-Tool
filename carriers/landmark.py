@@ -219,23 +219,51 @@ class LandmarkCarrier(BaseCarrier):
             weight_col=3,
         )
     
+    def _aggregate_lines(self, lines: List[LandmarkOrderLine]) -> List[LandmarkOrderLine]:
+        """
+        Merge order lines sharing the same (iso_code, format_code).
+
+        The portal rejects an entire deposit file if a destination/format
+        combination appears more than once, and the carrier sheet can contain
+        the same country+format across different rate bands.
+        """
+        merged: Dict[Tuple[str, str], LandmarkOrderLine] = {}
+        for line in lines:
+            key = (line.iso_code, line.format_code)
+            if key in merged:
+                merged[key].weight_kg = round(merged[key].weight_kg + line.weight_kg, 3)
+                merged[key].pieces += line.pieces
+            else:
+                merged[key] = LandmarkOrderLine(
+                    iso_code=line.iso_code,
+                    format_code=line.format_code,
+                    weight_kg=line.weight_kg,
+                    pieces=line.pieces,
+                    product_code=line.product_code,
+                )
+        return list(merged.values())
+
     def write_upload_files(self, output_dir: str) -> List[str]:
         """
         Write accumulated order lines to Landmark CSV upload files.
-        
+
         Generates separate files for Economy (12SL03) and Priority (12SL02).
-        
+        Lines with the same destination/format are merged, as the portal
+        requires each combination to be unique within a file.
+
         Args:
             output_dir: Directory to save the CSV files
-            
+
         Returns:
             List of generated file paths
         """
         files_created = []
-        
-        # Group by product code
-        economy_lines = [line for line in self._order_lines if line.product_code == '12SL03']
-        priority_lines = [line for line in self._order_lines if line.product_code == '12SL02']
+
+        # Group by product code, merging duplicate destination/format combos
+        economy_lines = self._aggregate_lines(
+            [line for line in self._order_lines if line.product_code == '12SL03'])
+        priority_lines = self._aggregate_lines(
+            [line for line in self._order_lines if line.product_code == '12SL02'])
 
         # Write Economy file
         if economy_lines:
@@ -274,9 +302,11 @@ class LandmarkCarrier(BaseCarrier):
         return self._order_lines
     
     def get_summary(self) -> Dict[str, dict]:
-        """Get a summary of accumulated order lines by service type."""
-        economy_lines = [line for line in self._order_lines if line.product_code == '12SL03']
-        priority_lines = [line for line in self._order_lines if line.product_code == '12SL02']
+        """Get a summary of order lines by service type (aggregated, matching the upload files)."""
+        economy_lines = self._aggregate_lines(
+            [line for line in self._order_lines if line.product_code == '12SL03'])
+        priority_lines = self._aggregate_lines(
+            [line for line in self._order_lines if line.product_code == '12SL02'])
         
         summary = {}
         

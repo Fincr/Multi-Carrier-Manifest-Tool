@@ -330,18 +330,22 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
     Called by upload_to_landmark_portal with retry logic.
     
     Returns:
-        (success: bool, message: str, pdf_downloaded: bool)
+        (success: bool, message: str, pdf_downloaded: bool, accepted_files: list)
         pdf_downloaded indicates whether manifest PDFs were successfully downloaded/printed
+        accepted_files lists files that received "Final acceptance" on the portal
+        (i.e. are manifested) - these must NOT be uploaded again on retry.
     """
+    accepted_files = []
+
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        return False, "Playwright not installed. Run: pip install playwright && playwright install chromium", False
-    
+        return False, "Playwright not installed. Run: pip install playwright && playwright install chromium", False, accepted_files
+
     # Load credentials from environment/.env
     creds = get_landmark_credentials()
     if not creds.is_valid():
-        return False, "Landmark credentials not configured. Set LANDMARK_EMAIL and LANDMARK_PASSWORD in .env file.", False
+        return False, "Landmark credentials not configured. Set LANDMARK_EMAIL and LANDMARK_PASSWORD in .env file.", False, accepted_files
     
     USERNAME = creds.email
     PASSWORD = creds.password
@@ -350,9 +354,10 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
     def log(msg):
         if log_callback:
             log_callback(msg)
-    
+
     downloaded_files = []
-    
+    failed_files = []  # (service_type, reason) for files that did not reach final acceptance
+
     try:
         async with async_playwright() as p:
             # Launch browser
@@ -490,7 +495,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                     await page.screenshot(path=screenshot_path)
                     log(f"  ⚠ Could not find e-Shipper link. Screenshot saved: {screenshot_path}")
                     await browser.close()
-                    return False, "Could not find e-Shipper link. Check landmark_debug_eshipper.png", False
+                    return False, "Could not find e-Shipper link. Check landmark_debug_eshipper.png", False, accepted_files
                 
                 await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
                 await page.wait_for_timeout(2000)
@@ -529,6 +534,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         screenshot_path = os.path.join(output_dir, f"landmark_debug_upload_{service_type}.png")
                         await page.screenshot(path=screenshot_path)
                         log("    ⚠ Could not find 'Upload deposit csv' link. Screenshot saved.")
+                        failed_files.append((service_type, "could not find 'Upload deposit csv' link"))
                         continue
                     
                     await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
@@ -542,6 +548,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         log("      ✓ File selected")
                     except Exception as e:
                         log(f"    ⚠ Could not select file: {e}")
+                        failed_files.append((service_type, f"could not select file: {e}"))
                         continue
                     
                     await page.wait_for_timeout(1000)
@@ -569,6 +576,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                     
                     if not clicked:
                         log("    ⚠ Could not find Upload button")
+                        failed_files.append((service_type, "could not find Upload button"))
                         continue
                     
                     await page.wait_for_load_state("networkidle", timeout=get_portal_timeout_ms())
@@ -593,6 +601,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         screenshot_path = os.path.join(output_dir, f"landmark_error_{service_type}.png")
                         await page.screenshot(path=screenshot_path)
                         log(f"    ⚠ Validation error detected. Screenshot saved: {screenshot_path}")
+                        failed_files.append((service_type, f"portal validation error - see {os.path.basename(screenshot_path)}"))
                         continue
                     
                     # Click "Final acceptance of input"
@@ -692,7 +701,11 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         screenshot_path = os.path.join(output_dir, f"landmark_debug_final_{service_type}.png")
                         await page.screenshot(path=screenshot_path)
                         log("    ⚠ Could not find 'Final acceptance' button. Screenshot saved.")
-                    
+                        failed_files.append((service_type, "could not find 'Final acceptance' button"))
+                    else:
+                        # File is manifested on the portal - must not be uploaded again
+                        accepted_files.append(file_path)
+
                     await page.wait_for_timeout(2000)
                 
                 await browser.close()
@@ -707,11 +720,19 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                         else:
                             log(f"    ⚠ {os.path.basename(pdf_path)}: {print_msg}")
                 
+                if failed_files:
+                    failure_list = "; ".join(f"{svc}: {reason}" for svc, reason in failed_files)
+                    accepted_names = [os.path.basename(f) for f in accepted_files]
+                    msg = f"FAILED to manifest {len(failed_files)} file(s) - {failure_list}."
+                    if accepted_names:
+                        msg += f" Already manifested (do NOT re-upload): {', '.join(accepted_names)}."
+                    return False, msg, bool(downloaded_files), accepted_files
+
                 if downloaded_files:
-                    return True, f"Successfully uploaded {len(file_paths)} file(s) and downloaded {len(downloaded_files)} manifest(s)", True
+                    return True, f"Successfully uploaded {len(file_paths)} file(s) and downloaded {len(downloaded_files)} manifest(s)", True, accepted_files
                 else:
-                    return True, f"Uploaded {len(file_paths)} file(s) but no manifests were downloaded", False
-                
+                    return True, f"Uploaded {len(file_paths)} file(s) but no manifests were downloaded", False, accepted_files
+
             except Exception as e:
                 try:
                     await browser.close()
@@ -720,7 +741,7 @@ async def _upload_to_landmark_portal_impl(file_paths: list, po_number: str = "",
                 raise e
 
     except Exception as e:
-        return False, f"Upload failed: {str(e)}", False
+        return False, f"Upload failed: {str(e)}", False, accepted_files
 
 
 async def upload_to_landmark_portal(file_paths: list, po_number: str = "", output_dir: str = "", auto_print: bool = True, log_callback=None) -> tuple[bool, str, bool]:
@@ -744,31 +765,42 @@ async def upload_to_landmark_portal(file_paths: list, po_number: str = "", outpu
     def log(msg):
         if log_callback:
             log_callback(msg)
-    
+
     last_error = None
-    
+    any_pdf_downloaded = False
+    remaining_files = list(file_paths)
+
     for attempt in range(get_portal_retry_count() + 1):
         if attempt > 0:
-            log(f"\n  ⟳ Retry attempt {attempt} of {get_portal_retry_count()}...")
-        
-        success, message, pdf_downloaded = await _upload_to_landmark_portal_impl(
-            file_paths, po_number, output_dir, auto_print, log_callback
+            log(f"\n  ⟳ Retry attempt {attempt} of {get_portal_retry_count()} ({len(remaining_files)} file(s) still to manifest)...")
+
+        success, message, pdf_downloaded, accepted_files = await _upload_to_landmark_portal_impl(
+            remaining_files, po_number, output_dir, auto_print, log_callback
         )
-        
+        any_pdf_downloaded = any_pdf_downloaded or pdf_downloaded
+
+        # Never re-upload files that reached final acceptance - they are
+        # already manifested on the portal and would be duplicated.
+        remaining_files = [f for f in remaining_files if f not in accepted_files]
+
         if success:
-            return success, message, pdf_downloaded
-        
-        # Check if this is a timeout error worth retrying
+            return success, message, any_pdf_downloaded
+
         last_error = message
+        if not remaining_files:
+            # Everything was manifested despite a late error (e.g. PDF download issue)
+            break
+
+        # Check if this is a timeout error worth retrying
         if "Timeout" in message or "timeout" in message:
             if attempt < get_portal_retry_count():
                 log("  ⚠ Timeout occurred, will retry...")
                 continue
         else:
-            # Non-timeout error, don't retry
+            # Non-timeout error (e.g. portal validation) - retrying won't help
             break
-    
-    return False, last_error or "Upload failed after retries", False
+
+    return False, last_error or "Upload failed after retries", any_pdf_downloaded
 
 
 def run_landmark_upload(file_paths: list, po_number: str = "", output_dir: str = "", auto_print: bool = True, log_callback=None) -> tuple[bool, str, bool]:
