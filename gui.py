@@ -36,6 +36,8 @@ from core.engine import ManifestEngine
 from core.config import get_config, save_config, AppConfig, get_available_printers
 from core.carrier_workflow import prints_output_file
 from core.credentials import get_landmark_credentials
+from core.excel_printing import print_workbook, should_abandon_batch_print
+from core.sheet_discovery import find_printable_sheets
 from pre_alerts.pre_alert_tab import PreAlertTab
 from pre_alerts.config_manager import load_pre_alert_config
 
@@ -214,19 +216,22 @@ def print_pdf_file(filepath: str, printer_name: str = None, close_after: bool = 
         return False, f"Print failed: {str(e)}"
 
 
-def print_excel_workbook(filepath: str, printer_name: str = None) -> tuple[bool, str]:
+def print_excel_workbook(filepath: str, printer_name: str = None, active_sheet_only: bool = False) -> tuple[bool, str]:
     """
     Print an Excel workbook to the specified printer.
-    
+
     Uses Windows COM automation via win32com.
     Falls back to default printer if printer_name not specified.
     Sets "Fit All Columns on One Page" for each sheet before printing.
-    
+
     Args:
         filepath: Full path to the Excel file
         printer_name: Network printer name (e.g., '\\\\print01.citipost.co.uk\\KT02')
                      If None, uses Windows default printer
-    
+        active_sheet_only: Print only the sheet the workbook opens on, rather
+                     than every tab. Used when printing carrier sheets, whose
+                     Notes and Lists tabs are reference material, not paperwork.
+
     Returns:
         (success: bool, message: str)
     """
@@ -250,24 +255,12 @@ def print_excel_workbook(filepath: str, printer_name: str = None) -> tuple[bool,
         
         # Open workbook
         wb = excel.Workbooks.Open(filepath)
-        
-        # Set "Fit All Columns on One Page" for each sheet
-        for sheet in wb.Sheets:
-            try:
-                sheet.PageSetup.Zoom = False  # Disable fixed zoom to allow fit-to-page
-                sheet.PageSetup.FitToPagesWide = 1  # Fit all columns to 1 page wide
-                sheet.PageSetup.FitToPagesTall = 32767  # Don't constrain rows (max pages tall)
-            except Exception:
-                pass  # Skip sheets that don't support PageSetup (e.g. chart sheets)
-        
-        # Print entire workbook
-        if printer_name:
-            # Print to specific printer
-            wb.PrintOut(ActivePrinter=printer_name)
-        else:
-            # Print to default printer
-            wb.PrintOut()
-        
+
+        # Lay out the columns and print. The choice of sheets, the fit-to-width
+        # settings and the printer argument live in core.excel_printing so they
+        # can be tested without an Excel instance.
+        print_workbook(wb, printer_name, active_sheet_only=active_sheet_only)
+
         return True, f"Sent to printer: {printer_name or 'default'}"
         
     except Exception as e:
@@ -1313,6 +1306,19 @@ class ManifestToolApp:
         )
         self.batch_button.grid(row=0, column=4, padx=5)
 
+        # Batch Print button. Prints a folder of carrier sheets as paperwork;
+        # unlike batch processing it produces no manifests, so it needs no
+        # output folder and does not check cell B3.
+        self.batch_print_button = ttk.Button(
+            button_frame,
+            # Plain text, not an emoji: Tk 8.6 cannot render non-BMP glyphs
+            # such as U+1F5A8 PRINTER, which come out as a tofu box. The
+            # trailing ellipsis matches its sibling and signals a dialog.
+            text="Batch Print Sheets...",
+            command=self.batch_print_carrier_sheets
+        )
+        self.batch_print_button.grid(row=0, column=5, padx=5)
+
         # Progress bar
         self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
         self.progress.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(0, 10))
@@ -1459,10 +1465,7 @@ class ManifestToolApp:
 
         # Scan folder for Excel files
         self.log(f"\nScanning folder: {folder}")
-        excel_files = []
-        for f in sorted(os.listdir(folder)):
-            if f.lower().endswith(('.xlsx', '.xls')) and not f.startswith('~$'):
-                excel_files.append(os.path.join(folder, f))
+        excel_files = find_printable_sheets(folder)
 
         if not excel_files:
             messagebox.showinfo("No Files", "No Excel files found in folder.")
@@ -1521,6 +1524,151 @@ class ManifestToolApp:
 
         if messagebox.askyesno("Confirm Batch Processing", msg):
             self.start_batch_processing()
+
+    # =========================================================================
+    # BATCH PRINTING
+    # =========================================================================
+
+    def batch_print_carrier_sheets(self):
+        """
+        Print every carrier sheet in a folder the operator points at.
+
+        Deliberately looser than batch processing: no output folder is needed
+        because nothing is generated, and cell B3 is not read because the
+        operator asked for the folder to be printed, not interpreted.
+        """
+        folder = filedialog.askdirectory(title="Select Folder with Carrier Sheets to Print")
+        if not folder:
+            return
+
+        self.log(f"\nScanning folder for sheets to print: {folder}")
+        sheets = find_printable_sheets(folder)
+
+        if not sheets:
+            messagebox.showinfo("No Sheets", "No Excel files found in that folder.")
+            return
+
+        for filepath in sheets:
+            self.log(f"  + {os.path.basename(filepath)}")
+
+        printer_short = self.config.printer_name.split("\\")[-1] if self.config.printer_name else "default"
+        msg = f"Print {len(sheets)} carrier sheet(s) to {printer_short}?\n\n"
+        msg += "\n".join(f"  {os.path.basename(p)}" for p in sheets[:10])
+        if len(sheets) > 10:
+            msg += f"\n  ... and {len(sheets) - 10} more"
+        msg += "\n\nOnly the first tab of each workbook is printed, with all columns fitted to one page width."
+
+        if not messagebox.askyesno("Confirm Batch Print", msg):
+            return
+
+        self.process_button.config(state='disabled')
+        self.batch_button.config(state='disabled')
+        self.batch_print_button.config(state='disabled')
+        self.progress.start()
+
+        thread = threading.Thread(
+            target=self.run_batch_print,
+            args=(sheets,),
+            daemon=True
+        )
+        thread.start()
+
+    def run_batch_print(self, sheets: list):
+        """
+        Background thread for batch printing.
+
+        Runs off the Tk thread because each sheet costs an Excel COM
+        round-trip, which would otherwise freeze the window for the whole
+        batch. Failures are collected rather than reported as they happen, so
+        the operator clears one dialog at the end instead of one per sheet.
+        """
+        total = len(sheets)
+        failures = []
+        attempted = 0
+
+        for index, filepath in enumerate(sheets):
+            filename = os.path.basename(filepath)
+            attempted = index + 1
+
+            self.root.after(0, lambda i=index, f=filename, t=total:
+                self.status_var.set(f"Printing {i+1}/{t} - {f}"))
+            self.root.after(0, self.log, f"Printing {index+1}/{total}: {filename}...")
+
+            success, message = print_excel_workbook(
+                filepath,
+                self.config.printer_name,
+                active_sheet_only=True
+            )
+
+            if success:
+                self.root.after(0, self.log, f"  ✓ {message}")
+                continue
+
+            self.root.after(0, self.log, f"  ✗ {message}")
+            failures.append((filename, message))
+
+            remaining = total - (index + 1)
+            if remaining and should_abandon_batch_print(len(failures), index + 1):
+                self.root.after(0, self.log,
+                    f"Nothing has printed yet — stopping batch print, "
+                    f"{remaining} sheet(s) not attempted. Check the printer.")
+                break
+
+        self.root.after(0, self.on_batch_print_complete, total, attempted, failures)
+
+    def on_batch_print_complete(self, total: int, attempted: int, failures: list):
+        """
+        Re-enable the UI and report the batch print outcome once.
+
+        `attempted` is tracked separately from `total` because the batch can
+        stop early. The sheets never tried are neither printed nor failed, and
+        counting them as printed would tell the operator that paperwork exists
+        when it does not.
+        """
+        self.progress.stop()
+        self.process_button.config(state='normal')
+        self.batch_button.config(state='normal')
+        self.batch_print_button.config(state='normal')
+
+        printed = attempted - len(failures)
+        unattempted = total - attempted
+
+        self.log(f"\n{'='*50}")
+        self.log("BATCH PRINT COMPLETE")
+        self.log(f"{'='*50}")
+        self.log(f"Sent to printer: {printed}")
+        self.log(f"Failed: {len(failures)}")
+        if unattempted:
+            self.log(f"Not attempted: {unattempted}")
+        for filename, reason in failures:
+            self.log(f"  [FAILED] {filename}")
+            self.log(f"      Error: {reason}")
+
+        status = f"Batch print complete: {printed} sent, {len(failures)} failed"
+        if unattempted:
+            status += f", {unattempted} not attempted"
+        self.status_var.set(status)
+
+        if not failures:
+            messagebox.showinfo(
+                "Batch Print Complete",
+                f"Sent {printed} carrier sheet(s) to the printer."
+            )
+            return
+
+        detail = "\n".join(f"  {name}: {reason}" for name, reason in failures[:10])
+        if len(failures) > 10:
+            detail += f"\n  ... and {len(failures) - 10} more"
+
+        summary = f"Sent {printed} of {total} sheet(s) to the printer."
+        if unattempted:
+            summary += (f"\n\nStopped early because nothing printed: "
+                        f"{unattempted} sheet(s) were not attempted. "
+                        f"Check the printer, then run it again.")
+        messagebox.showwarning(
+            "Batch Print Finished With Errors",
+            f"{summary}\n\nFailed:\n{detail}\n\nSee the log for details."
+        )
 
     def start_batch_processing(self):
         """Start processing all detected batch files."""
