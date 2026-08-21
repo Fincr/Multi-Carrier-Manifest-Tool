@@ -46,7 +46,7 @@ class RoyalMailSheetTests(unittest.TestCase):
 
     def process(self, rows, **kwargs):
         build_sheet(self.sheet, rows, **kwargs)
-        return self.carrier.process_carrier_sheet(self.sheet, self.tmp)
+        return self.carrier.extract_data(self.sheet)
 
     def lines_of(self, data):
         return sorted(
@@ -55,7 +55,7 @@ class RoyalMailSheetTests(unittest.TestCase):
         )
 
     def test_each_destination_and_format_becomes_its_own_line(self):
-        _, data = self.process([
+        data = self.process([
             ('Ireland', 'Letters', 100, 5.0),
             ('Netherlands', 'Letters', 200, 8.0),
             ('Canada', 'Flats', 50, 12.5),
@@ -67,21 +67,21 @@ class RoyalMailSheetTests(unittest.TestCase):
         ])
 
     def test_repeated_rows_for_one_destination_are_summed(self):
-        _, data = self.process([
+        data = self.process([
             ('France', 'Letters', 100, 4.0),
             ('France', 'Letters', 50, 2.0),
         ])
         self.assertEqual(self.lines_of(data), [('France', 'Letters', 150, 6.0)])
 
     def test_country_aliases_are_resolved_to_one_line(self):
-        _, data = self.process([
+        data = self.process([
             ('Republic of Ireland', 'Letters', 100, 4.0),
             ('ROI', 'Letters', 25, 1.0),
         ])
         self.assertEqual(self.lines_of(data), [('Ireland', 'Letters', 125, 5.0)])
 
     def test_letters_and_flats_for_one_country_stay_separate(self):
-        _, data = self.process([
+        data = self.process([
             ('Germany', 'Letters', 100, 4.0),
             ('Germany', 'Flats', 10, 6.0),
         ])
@@ -105,7 +105,7 @@ class RoyalMailSheetTests(unittest.TestCase):
         self.assertIn('Parcels', str(ctx.exception))
 
     def test_blank_rows_are_skipped(self):
-        _, data = self.process([
+        data = self.process([
             ('Ireland', 'Letters', 100, 4.0),
             (None, None, None, None),
             ('Italy', 'Flats', 10, 3.0),
@@ -113,11 +113,11 @@ class RoyalMailSheetTests(unittest.TestCase):
         self.assertEqual(len(data.lines), 2)
 
     def test_a_float_po_number_is_read_as_a_whole_number(self):
-        _, data = self.process([('Ireland', 'Letters', 1, 0.1)], po_number=987654.0)
+        data = self.process([('Ireland', 'Letters', 1, 0.1)], po_number=987654.0)
         self.assertEqual(data.po_number, '987654')
 
     def test_aggregate_totals_stay_available_for_the_processing_log(self):
-        _, data = self.process([
+        data = self.process([
             ('Ireland', 'Letters', 100, 5.0),
             ('Italy', 'Letters', 50, 2.0),
             ('Canada', 'Flats', 20, 8.0),
@@ -127,10 +127,11 @@ class RoyalMailSheetTests(unittest.TestCase):
         self.assertEqual(data.flats_items, 20)
         self.assertAlmostEqual(data.flats_weight, 8.0)
 
-    def test_the_carrier_sheet_is_copied_to_the_output_directory(self):
-        output_path, _ = self.process([('Ireland', 'Letters', 1, 0.1)])
-        self.assertTrue(os.path.exists(output_path))
-        self.assertEqual(os.path.dirname(output_path), self.tmp)
+    def test_extracting_data_writes_no_files(self):
+        build_sheet(self.sheet, [('Ireland', 'Letters', 1, 0.1)])
+        before = set(os.listdir(self.tmp))
+        self.carrier.extract_data(self.sheet)
+        self.assertEqual(set(os.listdir(self.tmp)), before)
 
 
 if __name__ == '__main__':

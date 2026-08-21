@@ -34,6 +34,7 @@ if __name__ == "__main__":
 
 from core.engine import ManifestEngine
 from core.config import get_config, save_config, AppConfig, get_available_printers
+from core.carrier_workflow import prints_output_file
 from core.credentials import get_landmark_credentials
 from pre_alerts.pre_alert_tab import PreAlertTab
 from pre_alerts.config_manager import load_pre_alert_config
@@ -1569,13 +1570,14 @@ class ManifestToolApp:
                 results = engine.process_sheet(filepath, max_errors=self.config.max_errors_before_stop)
 
                 if results and results[0].success:
-                    # Handle auto-print (skip for Spring/Landmark - portal handles it)
+                    # Handle auto-print (Spring/Landmark/Royal Mail print via their portal)
                     is_spring = 'spring' in carrier_name.lower()
                     is_landmark = 'landmark' in carrier_name.lower()
                     is_deutschepost = 'deutsche' in carrier_name.lower()
                     is_royalmail = 'royal mail' in carrier_name.lower()
 
-                    if self.auto_print_var.get() and not is_spring and not is_landmark:
+                    if (self.auto_print_var.get() and results[0].output_file
+                            and prints_output_file(carrier_name)):
                         self._do_print([results[0].output_file])
 
                     # Handle auto-upload (Royal Mail deferred to batch completion)
@@ -1992,9 +1994,17 @@ Features:
         # Enable print button if we have output files
         if self.last_output_files:
             self.print_button.config(state='normal')
-            # Enable upload button for Spring, Landmark, or Deutsche Post
-            if self.last_carrier_name and ('spring' in self.last_carrier_name.lower() or 'landmark' in self.last_carrier_name.lower() or 'deutsche' in self.last_carrier_name.lower() or 'royal mail' in self.last_carrier_name.lower()):
-                self.upload_button.config(state='normal')
+
+        # Enable upload button for the carriers with portal automation. Royal
+        # Mail writes no output file, so it is gated on its extracted data
+        # instead — the same thing batch mode gates on.
+        carrier_lower = (self.last_carrier_name or "").lower()
+        has_portal = any(
+            marker in carrier_lower
+            for marker in ('spring', 'landmark', 'deutsche', 'royal mail')
+        )
+        if has_portal and (self.last_output_files or self.last_royalmail_data):
+            self.upload_button.config(state='normal')
         
         # Summarise results
         self.log("\n" + "="*50)
@@ -2019,13 +2029,16 @@ Features:
         
         self.log(f"\nTOTAL: {total_processed} processed, {total_failed} failed")
         
-        # Auto-print if enabled and successful
-        # Skip for Spring/Landmark - portal handles printing
+        # Auto-print if enabled and successful.
+        # Spring, Landmark and Royal Mail are printed by their portal instead —
+        # see core.carrier_workflow.prints_output_file.
         # For Deutsche Post, print the carrier sheet now, portal will print the manifest PDF later
         is_spring = self.last_carrier_name and 'spring' in self.last_carrier_name.lower()
         is_landmark = self.last_carrier_name and 'landmark' in self.last_carrier_name.lower()
         is_deutschepost = self.last_carrier_name and 'deutsche' in self.last_carrier_name.lower()
-        if self.auto_print_var.get() and self.last_output_files and not is_spring and not is_landmark:
+        is_royalmail = self.last_carrier_name and 'royal mail' in self.last_carrier_name.lower()
+        print_locally = prints_output_file(self.last_carrier_name)
+        if self.auto_print_var.get() and self.last_output_files and print_locally:
             self.log("\n" + "-"*50)
             self.log("AUTO-PRINT ENABLED")
             self._do_print(self.last_output_files)
@@ -2053,10 +2066,9 @@ Features:
             # For Deutsche Post, we need to extract weight and format from the carrier sheet
             self._do_upload_deutschepost(self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
 
-        is_royalmail = self.last_carrier_name and 'royal mail' in self.last_carrier_name.lower()
         if (self.auto_upload_var.get() and
-            self.last_output_files and
-            is_royalmail):
+            is_royalmail and
+            self.last_royalmail_data):
             self.log("\n" + "-"*50)
             self.log("AUTO-UPLOAD TO ROYAL MAIL OBA PORTAL")
             self._do_upload_royalmail(self.last_po_number, self.output_dir_path.get(), self.auto_print_var.get())
@@ -2078,9 +2090,9 @@ Features:
             msg = (
                 f"Manifest populated successfully!\n\n"
                 f"Records processed: {total_processed}\n"
-                f"Output folder: {os.path.dirname(results[0].output_file) if results and results[0].output_file else 'N/A'}"
+                f"Output folder: {os.path.dirname(results[0].output_file) if results and results[0].output_file else self.output_dir_path.get()}"
             )
-            if self.auto_print_var.get() and not is_spring and not is_landmark:
+            if self.auto_print_var.get() and print_locally:
                 printer_short = self.config.printer_name.split('\\')[-1] if self.config.printer_name else "default"
                 msg += f"\n\nSent to printer: {printer_short}"
             if (self.auto_upload_var.get() and is_spring):
@@ -2089,6 +2101,8 @@ Features:
                 msg += "\n\nUpload to Landmark portal initiated."
             if (self.auto_upload_var.get() and is_deutschepost):
                 msg += "\n\nUpload to Deutsche Post portal initiated."
+            if (self.auto_upload_var.get() and is_royalmail):
+                msg += "\n\nUpload to Royal Mail OBA portal initiated."
             messagebox.showinfo("Success", msg)
         
         # Add to pre-alerts tab if it's a pre-alert carrier
@@ -2147,7 +2161,7 @@ Features:
     
     def upload_last_manifest(self):
         """Upload the last generated manifest to carrier portal."""
-        if not self.last_output_files:
+        if not self.last_output_files and not self.last_royalmail_data:
             messagebox.showwarning("No Manifest", "No manifest available to upload.")
             return
         
@@ -2163,8 +2177,17 @@ Features:
             )
             return
 
-        # Confirm upload
-        file_list = "\n".join(f"• {os.path.basename(f)}" for f in self.last_output_files)
+        # Confirm upload. Royal Mail uploads volumes rather than a file, so the
+        # confirmation lists destinations using the same wording as the log.
+        if is_royalmail:
+            from carriers.royalmail_portal import RoyalMailPortalInput
+            portal_input = RoyalMailPortalInput(
+                po_number=self.last_royalmail_data.po_number,
+                lines=self.last_royalmail_data.lines,
+            )
+            file_list = "\n".join(f"• {d}" for d in portal_input.describe())
+        else:
+            file_list = "\n".join(f"• {os.path.basename(f)}" for f in self.last_output_files)
         if is_spring:
             portal_name = "MySpring"
         elif is_landmark:

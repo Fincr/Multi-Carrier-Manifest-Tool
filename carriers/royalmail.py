@@ -5,12 +5,11 @@ A single carrier sheet may contain Flats and Letters rows for any of the
 supported destinations (see carriers/royalmail_countries.py). Data is
 extracted and bucketed per destination and format, then submitted to the
 Royal Mail OBA portal which generates the manifest. There is no manifest
-template.
+template, and nothing is written to the output folder — the only artefact
+is the order confirmation PDF the portal automation saves there.
 """
 
-import os
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from dataclasses import dataclass, field
 
 from openpyxl import load_workbook
@@ -91,24 +90,21 @@ class RoyalMailCarrier(BaseCarrier):
 
     def place_record(self, workbook, record: ShipmentRecord, country_index: dict) -> PlacementResult:
         """Not used — Royal Mail processes data via extract_data instead."""
-        raise NotImplementedError("Royal Mail does not use place_record — use process_carrier_sheet")
+        raise NotImplementedError("Royal Mail does not use place_record — use extract_data")
 
-    def process_carrier_sheet(
-        self,
-        carrier_sheet_path: str,
-        output_dir: str,
-        log_callback=None
-    ) -> Tuple[str, RoyalMailData]:
+    def extract_data(self, carrier_sheet_path: str, log_callback=None) -> RoyalMailData:
         """
-        Extract data from a Royal Mail carrier sheet and save to output dir.
+        Read the per-destination volumes a Royal Mail sheet declares.
+
+        Nothing is written: OBA produces the manifest, so there is no
+        output_dir argument and no copy of the sheet left behind.
 
         Args:
             carrier_sheet_path: Path to the original carrier sheet
-            output_dir: Directory to save the processed sheet
             log_callback: Optional logging function
 
         Returns:
-            (output_path, extracted_data)
+            The extracted RoyalMailData
         """
         def log(msg):
             if log_callback:
@@ -118,7 +114,6 @@ class RoyalMailCarrier(BaseCarrier):
         ws = wb.active
 
         # Extract metadata
-        carrier_name = str(ws['B3'].value or "").strip()
         po_raw = ws['B4'].value
         po_number = str(int(po_raw)) if isinstance(po_raw, float) else str(po_raw or "")
 
@@ -199,14 +194,8 @@ class RoyalMailCarrier(BaseCarrier):
             log(f"  {line.country} {line.format_type}: {line.items} items, "
                 f"{line.weight_kg} kg ({line.avg_weight_grams}g avg)")
 
-        # Save carrier sheet to output directory
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_name = carrier_name.replace(" ", "_").replace("/", "-")
-        output_filename = f"{safe_name}_{po_number}_{timestamp}.xlsx"
-        output_path = os.path.join(output_dir, output_filename)
-        wb.save(output_path)
         wb.close()
 
-        return output_path, data
+        return data
 
 

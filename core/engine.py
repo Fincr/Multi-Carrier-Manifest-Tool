@@ -473,15 +473,16 @@ class ManifestEngine:
         """
         Process Royal Mail International carrier — extract data for portal submission.
 
-        Like Deutsche Post, Royal Mail has no template. Data is extracted from the
-        carrier sheet and later submitted to the OBA portal.
+        Royal Mail has no template and, unlike Deutsche Post, no local output
+        either: OBA generates the manifest, and the portal automation saves the
+        order confirmation PDF. So output_file stays empty and the carrier data
+        is what downstream steps work from.
         """
         errors = []
 
         try:
-            output_path, extracted_data = carrier.process_carrier_sheet(
+            extracted_data = carrier.extract_data(
                 carrier_sheet_path,
-                self.output_dir,
                 log_callback=self.log_callback
             )
 
@@ -490,13 +491,13 @@ class ManifestEngine:
             if extracted_data.letters_items > 0:
                 self.log(f"  Letters: {extracted_data.letters_items} items, {extracted_data.letters_weight} kg")
 
-            self.log(f"Saved: {os.path.basename(output_path)}")
+            self.log("No file written — the OBA portal generates the manifest")
 
             total_items = extracted_data.flats_items + extracted_data.letters_items
 
             return ProcessingResult(
                 carrier_name=carrier.carrier_name,
-                output_file=output_path,
+                output_file="",
                 records_processed=total_items,
                 records_failed=0,
                 errors=errors,
