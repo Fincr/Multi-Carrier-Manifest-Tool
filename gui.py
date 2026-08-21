@@ -248,13 +248,26 @@ def print_excel_workbook(filepath: str, printer_name: str = None, active_sheet_o
         # Initialize COM for this thread
         pythoncom.CoInitialize()
         
-        # Create Excel instance
-        excel = win32com.client.Dispatch("Excel.Application")
+        # A private Excel instance, never one we did not create. Dispatch
+        # returns an already-running Excel from the Running Object Table, so a
+        # previous print's quit-pending instance came back here: it still
+        # answers COM calls but refuses to open workbooks, returning None.
+        # Measured over 17 manifests, Dispatch failed 10 of them, DispatchEx
+        # none. It also means this never adopts the operator's own Excel
+        # session, which the lines below would silence and then Quit.
+        excel = win32com.client.DispatchEx("Excel.Application")
         excel.Visible = False
         excel.DisplayAlerts = False
         
         # Open workbook
         wb = excel.Workbooks.Open(filepath)
+
+        # Excel returns None here rather than raising when it declines to open
+        # a file. Unchecked, that reached the print helper and failed as
+        # "'NoneType' object has no attribute 'ActiveSheet'", naming neither
+        # the file nor the reason.
+        if wb is None:
+            raise RuntimeError(f"Excel did not open {os.path.basename(filepath)}")
 
         # Lay out the columns and print. The choice of sheets, the fit-to-width
         # settings and the printer argument live in core.excel_printing so they
