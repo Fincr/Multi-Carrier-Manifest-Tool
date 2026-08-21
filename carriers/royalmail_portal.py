@@ -7,6 +7,10 @@ Handles the Royal Mail Online Business Account portal workflow:
 3. Wait for user to log in and reach the OBA dashboard
 4. Automate: select posting location, create order, fill form, confirm
 5. Save confirmation as PDF and optionally print
+6. Log out of OBA and close the automation browser
+
+One order covers every destination in the posting: each destination and
+format becomes its own line on the order form.
 
 Akamai bot protection on royalmail.com blocks automated Chromium,
 so we use the user's real Edge browser via CDP (Chrome DevTools Protocol).
@@ -14,14 +18,19 @@ Edge is launched automatically — the user only needs to log in.
 """
 
 import os
+import re
 import asyncio
 import subprocess
 import time
 from datetime import datetime
-from typing import Callable, Optional
-from dataclasses import dataclass
+from typing import Callable, List, Optional
+from dataclasses import dataclass, field
 
-from .royalmail import RoyalMailData
+from .royalmail_countries import (
+    SUPPORTED_COUNTRIES,
+    CountryLine,
+    normalise_text,
+)
 from core.credentials import get_royalmail_credentials
 
 
@@ -34,9 +43,11 @@ CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 PRODUCT_CODE_LETTERS = "PS5"
 PRODUCT_CODE_FLATS = "PS7"
 
-# Portal form values
-REGION = "EUROPEAN UNION"
-COUNTRY = "IRELAND (REPUBLIC OF)"
+# Which OBA product each format is filed under
+PRODUCT_CODES = {
+    'Letters': PRODUCT_CODE_LETTERS,
+    'Flats': PRODUCT_CODE_FLATS,
+}
 
 # Edge 136+ ignores --remote-debugging-port on the default user profile
 # (Chromium security change), so CDP must use a dedicated profile directory.
@@ -53,34 +64,130 @@ EDGE_PATHS = [
 ]
 
 
+def _leads_with(text: str, target: str) -> bool:
+    """True if text starts with target on a word boundary."""
+    if not text.startswith(target):
+        return False
+    rest = text[len(target):]
+    return not rest or not rest[0].isalnum()
+
+
+def _contains_word(text: str, target: str) -> bool:
+    """True if target appears in text as a whole word."""
+    return re.search(rf'(?<![a-z0-9]){re.escape(target)}(?![a-z0-9])', text) is not None
+
+
+def match_option_value(options, wanted: str, what: str) -> str:
+    """
+    Pick the <option> value whose label matches `wanted`.
+
+    We cannot verify OBA's exact dropdown wording from outside the portal —
+    Ireland reads 'IRELAND (REPUBLIC OF)', and the others could carry
+    suffixes of their own — so match against whatever the portal actually
+    rendered instead of hardcoding a guess. Tried in order: an exact label,
+    a label leading with the name, then a label containing it as a word.
+
+    Raises LookupError naming the options that were available, so a wrong
+    guess shows up as a clear failure rather than a wrong country on a
+    confirmed order.
+    """
+    target = normalise_text(wanted)
+    candidates = [(value, normalise_text(text), text) for value, text in options]
+    candidates = [c for c in candidates if c[1]]
+
+    for tier_name, predicate in (
+        ('exact', lambda t: t == target),
+        ('leading', lambda t: _leads_with(t, target)),
+        ('containing', lambda t: _contains_word(t, target)),
+    ):
+        hits = [c for c in candidates if predicate(c[1])]
+        if len(hits) == 1:
+            return hits[0][0]
+        if len(hits) > 1:
+            labels = ', '.join(repr(h[2]) for h in hits)
+            raise LookupError(
+                f"Ambiguous {what} '{wanted}' on the OBA form — "
+                f"{len(hits)} options match ({tier_name}): {labels}"
+            )
+
+    available = ', '.join(repr(c[2]) for c in candidates) or '(none)'
+    raise LookupError(
+        f"No {what} option matching '{wanted}' on the OBA form. "
+        f"Available: {available}"
+    )
+
+
 @dataclass
 class RoyalMailPortalInput:
-    """Combined input for the Royal Mail portal from one or both carrier sheets."""
+    """
+    Combined input for one OBA order, from one or several carrier sheets.
+
+    Each CountryLine becomes one line on the order form, so a single order
+    covers every destination in the posting.
+    """
     po_number: str
-    flats_items: int = 0
-    flats_weight_kg: float = 0.0
-    letters_items: int = 0
-    letters_weight_kg: float = 0.0
+    lines: List[CountryLine] = field(default_factory=list)
 
     @property
-    def has_letters(self) -> bool:
-        return self.letters_items > 0
+    def ordered_lines(self) -> List[CountryLine]:
+        """
+        Non-empty lines in the order they should be entered on the form:
+        registry country order, Letters before Flats within each country.
+        """
+        country_order = list(SUPPORTED_COUNTRIES)
+        format_order = ['Letters', 'Flats']
+
+        def sort_key(line: CountryLine):
+            country_rank = (
+                country_order.index(line.country)
+                if line.country in country_order else len(country_order)
+            )
+            format_rank = (
+                format_order.index(line.format_type)
+                if line.format_type in format_order else len(format_order)
+            )
+            return (country_rank, format_rank, line.country, line.format_type)
+
+        return sorted((l for l in self.lines if l.items > 0), key=sort_key)
 
     @property
-    def has_flats(self) -> bool:
-        return self.flats_items > 0
+    def has_any(self) -> bool:
+        return any(line.items > 0 for line in self.lines)
 
-    @property
-    def avg_letter_weight_grams(self) -> int:
-        if self.letters_items > 0:
-            return round(self.letters_weight_kg * 1000 / self.letters_items)
-        return 0
+    def merge(self, other: 'RoyalMailPortalInput') -> None:
+        """
+        Fold another sheet's volumes into this order.
 
-    @property
-    def avg_flat_weight_grams(self) -> int:
-        if self.flats_items > 0:
-            return round(self.flats_weight_kg * 1000 / self.flats_items)
-        return 0
+        Batch mode combines several carrier sheets into one OBA order, so a
+        destination appearing on two sheets must sum rather than double-count.
+        """
+        by_key = {(l.country, l.format_type): l for l in self.lines}
+        for incoming in other.lines:
+            key = (incoming.country, incoming.format_type)
+            existing = by_key.get(key)
+            if existing:
+                existing.items += incoming.items
+                existing.weight_kg = round(existing.weight_kg + incoming.weight_kg, 3)
+            else:
+                new_line = CountryLine(
+                    country=incoming.country,
+                    format_type=incoming.format_type,
+                    items=incoming.items,
+                    weight_kg=incoming.weight_kg,
+                )
+                self.lines.append(new_line)
+                by_key[key] = new_line
+
+        if not self.po_number:
+            self.po_number = other.po_number
+
+    def describe(self) -> List[str]:
+        """One human-readable summary line per destination, for the log."""
+        return [
+            f"{line.country} {line.format_type}: {line.items} items, "
+            f"{line.avg_weight_grams}g avg ({line.weight_kg} kg total)"
+            for line in self.ordered_lines
+        ]
 
 
 def _find_edge_executable() -> Optional[str]:
@@ -104,6 +211,137 @@ def _kill_edge_processes():
         time.sleep(2)  # Wait for processes to fully exit
     except Exception:
         pass
+
+
+def _find_profile_edge_pids() -> Optional[list]:
+    """
+    PIDs of Edge processes running under our dedicated OBA profile.
+
+    Returns None if the process list could not be read, so callers can tell
+    "no automation Edge running" apart from "could not look".
+    """
+    query = (
+        "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | "
+        f"Where-Object {{ $_.CommandLine -like '*{EDGE_PROFILE_DIR}*' }} | "
+        "ForEach-Object { $_.ProcessId }"
+    )
+    try:
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command', query],
+            capture_output=True, text=True, timeout=20
+        )
+        if result.returncode != 0:
+            return None
+        return [int(l.strip()) for l in result.stdout.splitlines() if l.strip().isdigit()]
+    except Exception:
+        return None
+
+
+def _close_automation_edge(log=None) -> None:
+    """
+    Terminate the Edge instance this tool launched, leaving other Edge
+    windows alone.
+
+    Targets only processes running under EDGE_PROFILE_DIR so the user's own
+    browsing survives. Falls back to the blunt all-Edge kill only if the
+    process list cannot be read, and says so when it does.
+    """
+    def say(msg):
+        if log:
+            log(msg)
+
+    pids = _find_profile_edge_pids()
+
+    if pids is None:
+        say("    Could not list Edge processes; closing all Edge windows")
+        _kill_edge_processes()
+        return
+
+    if not pids:
+        say("    Automation Edge already closed")
+        return
+
+    for pid in pids:
+        try:
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(pid)],
+                capture_output=True, timeout=10
+            )
+        except Exception:
+            pass
+
+    time.sleep(2)  # Let the processes actually exit before we report
+    if _is_edge_cdp_available():
+        say("    Edge still responding on the debug port after close")
+    else:
+        say(f"    Closed automation Edge ({len(pids)} process(es))")
+
+
+async def _log_out_of_oba(browser, log) -> bool:
+    """
+    Click the OBA log-off control so the session does not stay open.
+
+    The control lives in the portal masthead, which may be the top-level
+    page or one of the SAP portal frames, so every frame is tried.
+    """
+    logout_pattern = re.compile(r'log\s?off|log\s?out|sign\s?out', re.IGNORECASE)
+
+    for ctx in browser.contexts:
+        for page in ctx.pages:
+            try:
+                if 'royalmail.com' not in page.url.lower():
+                    continue
+            except Exception:
+                continue
+
+            # Log off may raise a confirm dialog. Playwright auto-dismisses
+            # dialogs when nothing is listening, which would cancel the very
+            # thing we are trying to do, so accept them explicitly.
+            page.on('dialog', lambda dialog: asyncio.ensure_future(dialog.accept()))
+
+            for frame in list(page.frames):
+                for role in ('link', 'button'):
+                    try:
+                        control = frame.get_by_role(role, name=logout_pattern).first
+                        if await control.count() == 0:
+                            continue
+                        await control.click(timeout=5000)
+                        log("    Logged out of OBA")
+                        await page.wait_for_timeout(3000)
+                        return True
+                    except Exception:
+                        continue
+
+    log("    No log-off control found; closing the browser instead")
+    return False
+
+
+async def _logout_and_close_edge(log) -> None:
+    """
+    End the OBA session and close the automation browser.
+
+    Runs on every path — success, failure or crash — so a run never leaves a
+    logged-in tab behind. Reconnects over CDP rather than reusing the
+    automation's connection, which keeps it independent of how the run ended.
+    """
+    log("  Closing Royal Mail session...")
+
+    if _is_edge_cdp_available():
+        try:
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser = await p.chromium.connect_over_cdp(CDP_URL)
+                try:
+                    await _log_out_of_oba(browser, log)
+                finally:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+        except Exception as e:
+            log(f"    Log-off skipped ({e})")
+
+    _close_automation_edge(log)
 
 
 def _is_edge_cdp_available() -> bool:
@@ -362,8 +600,102 @@ async def _wait_for_oba_dashboard(browser, log, timeout_seconds=300):
     return None
 
 
+async def _read_select_options(select_locator):
+    """Return [(value, label)] for a <select>, as the portal rendered it."""
+    return await select_locator.evaluate(
+        "el => Array.from(el.options).map(o => [o.value, o.textContent])"
+    )
+
+
+async def _select_matching_option(frame, field_suffix: str, wanted: str, what: str):
+    """
+    Select the option matching `wanted` on the item-configuration form.
+
+    Fields are located by name suffix rather than the '1.1.' prefix the
+    configuration page happens to use, so a different line prefix cannot
+    silently skip a fill.
+    """
+    select_locator = frame.locator(f'select[name$=".{field_suffix}"]').first
+    options = await _read_select_options(select_locator)
+    value = match_option_value(options, wanted, what)
+    await select_locator.select_option(value)
+
+
+async def _fill_by_suffix(frame, field_suffix: str, value: str):
+    """Fill an item-configuration input located by its name suffix."""
+    field = frame.locator(f'input[name$=".{field_suffix}"]').first
+    await field.click()
+    await field.fill(value)
+
+
+async def _configure_line(page, frame, line: CountryLine, index: int, log):
+    """
+    Open line `index`'s configuration and file it against its destination.
+
+    Returns the content frame after the configuration is accepted.
+    """
+    spec = SUPPORTED_COUNTRIES[line.country]
+    product_code = PRODUCT_CODES[line.format_type]
+
+    log(f"  Configuring line {index + 1}: {product_code} {line.country} ({line.format_type})...")
+    config_links = frame.locator('a[onclick*="itemconfig"]')
+    link_count = await config_links.count()
+    if link_count <= index:
+        raise RuntimeError(
+            f"Expected at least {index + 1} configurable order lines but the "
+            f"form shows {link_count}. The order form may have rejected a "
+            f"duplicate product code."
+        )
+    await config_links.nth(index).click()
+    await page.wait_for_timeout(3000)
+
+    frame = await _find_content_frame(page)
+    if not frame:
+        raise RuntimeError(f"Lost the content frame opening line {index + 1}'s configuration")
+
+    await _select_matching_option(frame, 'ZZOBA_INTL_REGION', spec.region, 'region')
+    await _select_matching_option(frame, 'ZZOBA_CNTRY_DESP', line.country, 'country')
+    await _fill_by_suffix(frame, 'ZZOBA_TOTAL_ITEM_QTY', str(line.items))
+    await _fill_by_suffix(frame, 'ZZUNITWGT', str(line.avg_weight_grams))
+    log(f"    {line.country} {line.format_type}: {line.items} items, "
+        f"{line.avg_weight_grams}g avg, region {spec.region}")
+
+    await frame.locator('text=Accept').first.click()
+    await page.wait_for_timeout(3000)
+
+    frame = await _find_content_frame(page)
+    if not frame:
+        raise RuntimeError(f"Lost the content frame after accepting line {index + 1}")
+    return frame
+
+
 async def _create_order(page, frame, portal_input: RoyalMailPortalInput, log, timeout_ms: int):
-    """Create and configure an order with the given products."""
+    """
+    Create one order covering every destination in the posting.
+
+    Each CountryLine becomes one line on the order form: its product code
+    goes in a product row, then its configuration carries the destination
+    country, OBA region, item count and average item weight.
+    """
+    lines = portal_input.ordered_lines
+    if not lines:
+        return False, "No Royal Mail volumes to submit"
+
+    # Check every line is fileable before touching the form. Without this a
+    # stray destination or format surfaces as a bare KeyError — and KeyError
+    # is a LookupError, so it would be caught below and reported as just the
+    # offending value with no explanation.
+    for line in lines:
+        if line.country not in SUPPORTED_COUNTRIES:
+            return False, (
+                f"Cannot file destination '{line.country}' through OBA. "
+                f"Supported: {', '.join(SUPPORTED_COUNTRIES)}."
+            )
+        if line.format_type not in PRODUCT_CODES:
+            return False, (
+                f"Cannot file format '{line.format_type}' through OBA. "
+                f"Supported: {', '.join(PRODUCT_CODES)}."
+            )
 
     # Click 'Create new Order' link
     log("  Creating new order...")
@@ -382,25 +714,21 @@ async def _create_order(page, frame, portal_input: RoyalMailPortalInput, log, ti
     await po_field.fill(portal_input.po_number)
     log(f"    PO number: {portal_input.po_number}")
 
-    # Enter product codes
-    product_row = 1
-    if portal_input.has_letters:
-        prod_field = frame.locator(f'input[name="product[{product_row}]"]')
+    # One product row per destination/format line
+    for index, line in enumerate(lines, start=1):
+        product_code = PRODUCT_CODES[line.format_type]
+        prod_field = frame.locator(f'input[name="product[{index}]"]')
+        if await prod_field.count() == 0:
+            return False, (
+                f"The order form has no product row {index}; it cannot hold "
+                f"{len(lines)} lines. Reduce the destinations in this posting "
+                f"or split it across orders."
+            )
         await prod_field.click()
         await prod_field.fill('')
-        await prod_field.type(PRODUCT_CODE_LETTERS)
+        await prod_field.type(product_code)
         await prod_field.press('Tab')
-        log(f"    Product [{product_row}]: {PRODUCT_CODE_LETTERS} (Letters)")
-        product_row += 1
-        await page.wait_for_timeout(500)
-
-    if portal_input.has_flats:
-        prod_field = frame.locator(f'input[name="product[{product_row}]"]')
-        await prod_field.click()
-        await prod_field.fill('')
-        await prod_field.type(PRODUCT_CODE_FLATS)
-        await prod_field.press('Tab')
-        log(f"    Product [{product_row}]: {PRODUCT_CODE_FLATS} (Flats)")
+        log(f"    Product [{index}]: {product_code} — {line.country} {line.format_type}")
         await page.wait_for_timeout(500)
 
     # Click Update order to validate product codes
@@ -414,50 +742,12 @@ async def _create_order(page, frame, portal_input: RoyalMailPortalInput, log, ti
     if not frame:
         return False, "Could not find order form after Update"
 
-    # Configure each product
-    if portal_input.has_letters:
-        log("  Configuring PS5 (Letters)...")
-        config_links = frame.locator('a[onclick*="itemconfig"]')
-        await config_links.nth(0).click()
-        await page.wait_for_timeout(3000)
-
-        frame = await _find_content_frame(page)
-        await frame.locator('select[name="1.1.ZZOBA_INTL_REGION"]').select_option(REGION)
-        await frame.locator('select[name="1.1.ZZOBA_CNTRY_DESP"]').select_option(COUNTRY)
-        items_field = frame.locator('input[name="1.1.ZZOBA_TOTAL_ITEM_QTY"]')
-        await items_field.click()
-        await items_field.fill(str(portal_input.letters_items))
-        weight_field = frame.locator('input[name="1.1.ZZUNITWGT"]')
-        await weight_field.click()
-        await weight_field.fill(str(portal_input.avg_letter_weight_grams))
-        log(f"    Letters: {portal_input.letters_items} items, {portal_input.avg_letter_weight_grams}g avg")
-
-        await frame.locator('text=Accept').first.click()
-        await page.wait_for_timeout(3000)
-        frame = await _find_content_frame(page)
-
-    if portal_input.has_flats:
-        log("  Configuring PS7 (Flats)...")
-        config_links = frame.locator('a[onclick*="itemconfig"]')
-        # If both products exist, PS7 config is the last itemconfig link
-        config_idx = (await config_links.count()) - 1
-        await config_links.nth(config_idx).click()
-        await page.wait_for_timeout(3000)
-
-        frame = await _find_content_frame(page)
-        await frame.locator('select[name="1.1.ZZOBA_INTL_REGION"]').select_option(REGION)
-        await frame.locator('select[name="1.1.ZZOBA_CNTRY_DESP"]').select_option(COUNTRY)
-        items_field = frame.locator('input[name="1.1.ZZOBA_TOTAL_ITEM_QTY"]')
-        await items_field.click()
-        await items_field.fill(str(portal_input.flats_items))
-        weight_field = frame.locator('input[name="1.1.ZZUNITWGT"]')
-        await weight_field.click()
-        await weight_field.fill(str(portal_input.avg_flat_weight_grams))
-        log(f"    Flats: {portal_input.flats_items} items, {portal_input.avg_flat_weight_grams}g avg")
-
-        await frame.locator('text=Accept').first.click()
-        await page.wait_for_timeout(3000)
-        frame = await _find_content_frame(page)
+    # Configure each line in the same order the product rows were entered
+    try:
+        for index, line in enumerate(lines):
+            frame = await _configure_line(page, frame, line, index, log)
+    except (LookupError, RuntimeError) as e:
+        return False, str(e)
 
     return True, ""
 
@@ -705,33 +995,47 @@ async def submit_to_royalmail_portal(
     timeout_ms: int = 30000,
     retry_count: int = 1
 ) -> tuple[bool, str]:
-    """Submit order to Royal Mail OBA portal with retry logic."""
+    """
+    Submit order to Royal Mail OBA portal with retry logic.
+
+    Always ends by logging out of OBA and closing the automation browser, so
+    a run never leaves a logged-in Edge tab behind. That teardown sits
+    outside the retry loop, so retries still share one browser session.
+    """
     def log(msg):
         if log_callback:
             log_callback(msg)
 
     last_error = None
 
-    for attempt in range(retry_count + 1):
-        if attempt > 0:
-            log(f"\n  Retry attempt {attempt} of {retry_count}...")
+    try:
+        for attempt in range(retry_count + 1):
+            if attempt > 0:
+                log(f"\n  Retry attempt {attempt} of {retry_count}...")
 
-        success, message = await _submit_to_royalmail_portal_impl(
-            portal_input, output_dir, auto_print, log_callback, timeout_ms
-        )
+            success, message = await _submit_to_royalmail_portal_impl(
+                portal_input, output_dir, auto_print, log_callback, timeout_ms
+            )
 
-        if success:
-            return success, message
+            if success:
+                return success, message
 
-        last_error = message
-        if "Timeout" in message or "timeout" in message:
-            if attempt < retry_count:
-                log("  Timeout occurred, will retry...")
-                continue
-        else:
-            break
+            last_error = message
+            if "Timeout" in message or "timeout" in message:
+                if attempt < retry_count:
+                    log("  Timeout occurred, will retry...")
+                    continue
+            else:
+                break
 
-    return False, last_error or "Portal automation failed after retries"
+        return False, last_error or "Portal automation failed after retries"
+
+    finally:
+        # Teardown must not turn a completed order into a reported failure
+        try:
+            await _logout_and_close_edge(log)
+        except Exception as e:
+            log(f"  Session cleanup issue: {e}")
 
 
 def run_royalmail_upload(

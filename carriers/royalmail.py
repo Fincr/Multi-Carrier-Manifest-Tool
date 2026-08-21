@@ -1,45 +1,64 @@
 """
 Royal Mail International 2026 carrier handler.
 
-A single carrier sheet may contain both Flats and Letters rows for Ireland.
-Data is extracted, bucketed by format, and submitted to the Royal Mail OBA
-portal which generates the manifest. There is no manifest template.
+A single carrier sheet may contain Flats and Letters rows for any of the
+supported destinations (see carriers/royalmail_countries.py). Data is
+extracted and bucketed per destination and format, then submitted to the
+Royal Mail OBA portal which generates the manifest. There is no manifest
+template.
 """
 
 import os
 from datetime import datetime
-from typing import Dict, Tuple, Optional
-from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
+from dataclasses import dataclass, field
 
 from openpyxl import load_workbook
 
 from .base import BaseCarrier, ShipmentRecord, PlacementResult
+from .royalmail_countries import (
+    CountryLine,
+    resolve_country,
+    supported_country_list,
+)
+
+
+# Formats covered by the OBA international products (PS5 / PS7)
+SUPPORTED_FORMATS = ('Letters', 'Flats')
 
 
 @dataclass
 class RoyalMailData:
     """Data extracted from a Royal Mail International carrier sheet.
 
-    Weight fields store total weight in KG from the carrier sheet.
-    The portal requires average item weight in grams, computed via
-    avg_weight_grams().
+    One CountryLine per destination and format, each holding the sheet's
+    item count and total weight in KG. The aggregate properties exist for
+    the processing log; the portal works from the lines.
     """
     po_number: str
-    flats_items: int = 0
-    flats_weight: float = 0.0      # total weight in KG
-    letters_items: int = 0
-    letters_weight: float = 0.0    # total weight in KG
+    lines: List[CountryLine] = field(default_factory=list)
 
-    def avg_weight_grams(self, format_type: str) -> int:
-        """Average item weight in grams for a format (Letters or Flats).
+    def _total(self, format_type: str, attr: str):
+        return sum(
+            getattr(line, attr) for line in self.lines
+            if line.format_type == format_type
+        )
 
-        The OBA portal requires this as a whole number in grams.
-        """
-        if format_type == 'letters' and self.letters_items > 0:
-            return round(self.letters_weight * 1000 / self.letters_items)
-        elif format_type == 'flats' and self.flats_items > 0:
-            return round(self.flats_weight * 1000 / self.flats_items)
-        return 0
+    @property
+    def letters_items(self) -> int:
+        return self._total('Letters', 'items')
+
+    @property
+    def letters_weight(self) -> float:
+        return round(self._total('Letters', 'weight_kg'), 3)
+
+    @property
+    def flats_items(self) -> int:
+        return self._total('Flats', 'items')
+
+    @property
+    def flats_weight(self) -> float:
+        return round(self._total('Flats', 'weight_kg'), 3)
 
 
 class RoyalMailCarrier(BaseCarrier):
@@ -49,27 +68,14 @@ class RoyalMailCarrier(BaseCarrier):
     Like Deutsche Post, this carrier has no manifest template.
     Data is extracted from the carrier sheet and submitted to the
     Royal Mail OBA portal, which generates the manifest.
-    A single sheet may contain both Flats and Letters rows.
+    A single sheet may contain rows for several destinations and formats.
     """
 
     carrier_name = "Royal Mail International 2026"
     template_filename = ""  # No template — portal generates the manifest
 
-    # Ireland country name variations
-    IRELAND_NAMES = {
-        'ireland', 'republic of ireland', 'eire', 'ie',
-        'ireland, republic of', 'roi',
-    }
-
-    def __init__(self):
-        super().__init__()
-        self.country_mapping = {
-            'Republic of Ireland': 'Ireland',
-            'Eire': 'Ireland',
-            'IE': 'Ireland',
-            'Ireland, Republic of': 'Ireland',
-            'ROI': 'Ireland',
-        }
+    # Destination spellings live in royalmail_countries.resolve_country, which
+    # both this parser and the portal automation share.
 
     def build_country_index(self, workbook) -> Dict[str, dict]:
         """Not used — Royal Mail has no template."""
@@ -123,11 +129,9 @@ class RoyalMailCarrier(BaseCarrier):
             if val:
                 headers[str(val).strip()] = col
 
-        flats_items = 0
-        flats_weight = 0.0
-        letters_items = 0
-        letters_weight = 0.0
-        non_ireland_countries = []
+        # Bucket by (destination, format) — one OBA order line each
+        buckets: Dict[Tuple[str, str], CountryLine] = {}
+        unsupported_countries = []
         unknown_formats = []
 
         row = 9
@@ -142,11 +146,6 @@ class RoyalMailCarrier(BaseCarrier):
             items_val = ws.cell(row=row, column=headers.get('Items', 5)).value
             weight_val = ws.cell(row=row, column=headers.get('Weight (KG)', 6)).value
 
-            # Validate country is Ireland
-            mapped_country = self.map_country(country)
-            if mapped_country.lower() not in self.IRELAND_NAMES:
-                non_ireland_countries.append(country)
-
             # Parse numeric values
             try:
                 items = int(items_val) if items_val not in (None, '', ' ') else 0
@@ -158,36 +157,47 @@ class RoyalMailCarrier(BaseCarrier):
             except (ValueError, TypeError):
                 weight = 0.0
 
-            # Bucket by format
+            # A destination or format we cannot file is collected rather than
+            # skipped: silently dropping a row, or folding it into another
+            # country's line, means posting an order with the wrong volumes.
+            resolved_country = resolve_country(country)
             normalised_format = self.normalise_format(format_val)
-            if normalised_format == 'Flats':
-                flats_items += items
-                flats_weight += weight
-            elif normalised_format == 'Letters':
-                letters_items += items
-                letters_weight += weight
+
+            if resolved_country is None:
+                unsupported_countries.append(f"{country} (row {row})")
+            elif normalised_format not in SUPPORTED_FORMATS:
+                unknown_formats.append(f"{format_val or '(blank)'} (row {row})")
             else:
-                unknown_formats.append(format_val)
+                key = (resolved_country, normalised_format)
+                line = buckets.get(key)
+                if line is None:
+                    line = CountryLine(country=resolved_country, format_type=normalised_format)
+                    buckets[key] = line
+                line.items += items
+                line.weight_kg = round(line.weight_kg + weight, 3)
 
             row += 1
 
-        # Log warnings
-        if non_ireland_countries:
-            unique = set(non_ireland_countries)
-            log(f"  ⚠ Non-Ireland countries found: {', '.join(unique)}")
+        if unsupported_countries:
+            raise ValueError(
+                "Royal Mail carrier sheet contains destinations that cannot be "
+                f"filed through OBA: {', '.join(unsupported_countries)}. "
+                f"Supported: {supported_country_list()}."
+            )
 
         if unknown_formats:
-            unique = set(unknown_formats)
-            log(f"  ⚠ Unrecognised formats: {', '.join(unique)}")
+            raise ValueError(
+                "Royal Mail carrier sheet contains formats that cannot be filed "
+                f"through OBA: {', '.join(unknown_formats)}. "
+                f"Supported: {', '.join(SUPPORTED_FORMATS)}."
+            )
 
         # Build result data
-        data = RoyalMailData(
-            po_number=po_number,
-            flats_items=flats_items,
-            flats_weight=round(flats_weight, 3),
-            letters_items=letters_items,
-            letters_weight=round(letters_weight, 3),
-        )
+        data = RoyalMailData(po_number=po_number, lines=list(buckets.values()))
+
+        for line in data.lines:
+            log(f"  {line.country} {line.format_type}: {line.items} items, "
+                f"{line.weight_kg} kg ({line.avg_weight_grams}g avg)")
 
         # Save carrier sheet to output directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

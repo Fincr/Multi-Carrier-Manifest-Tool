@@ -1588,13 +1588,10 @@ class ManifestToolApp:
                         rm_data = results[0].royalmail_data
                         if self._batch_royalmail_data is None:
                             self._batch_royalmail_data = RoyalMailPortalInput(po_number=rm_data.po_number)
-                        # Merge this sheet's data into the combined input
-                        self._batch_royalmail_data.letters_items += rm_data.letters_items
-                        self._batch_royalmail_data.letters_weight_kg += rm_data.letters_weight
-                        self._batch_royalmail_data.flats_items += rm_data.flats_items
-                        self._batch_royalmail_data.flats_weight_kg += rm_data.flats_weight
-                        if not self._batch_royalmail_data.po_number:
-                            self._batch_royalmail_data.po_number = rm_data.po_number
+                        # Merge this sheet's destinations into the combined order
+                        self._batch_royalmail_data.merge(
+                            RoyalMailPortalInput(po_number=rm_data.po_number, lines=rm_data.lines)
+                        )
 
                     self.batch_results.append({
                         'file': filename,
@@ -1620,11 +1617,12 @@ class ManifestToolApp:
                     'error': str(e)
                 })
 
-        # Handle deferred Royal Mail batch upload (combine both sheets into one portal session)
-        if self.auto_upload_var.get() and hasattr(self, '_batch_royalmail_data') and self._batch_royalmail_data:
+        # Handle deferred Royal Mail batch upload (combine every sheet into one order)
+        batch_rm = getattr(self, '_batch_royalmail_data', None)
+        if self.auto_upload_var.get() and batch_rm and batch_rm.has_any:
             self.root.after(0, self.log, "\n" + "-"*50)
             self.root.after(0, self.log, "ROYAL MAIL BATCH UPLOAD (combined)")
-            self._upload_royalmail_blocking(self._batch_royalmail_data, output_dir)
+            self._upload_royalmail_blocking(batch_rm, output_dir)
 
         # Complete
         self.root.after(0, self.on_batch_complete)
@@ -2361,18 +2359,13 @@ Features:
         # Build portal input from extracted data
         portal_input = RoyalMailPortalInput(
             po_number=data.po_number,
-            flats_items=data.flats_items,
-            flats_weight_kg=data.flats_weight,
-            letters_items=data.letters_items,
-            letters_weight_kg=data.letters_weight,
+            lines=data.lines,
         )
 
         log_msg("Submitting to Royal Mail OBA portal...")
         log_msg(f"  PO Number: {data.po_number}")
-        if portal_input.has_letters:
-            log_msg(f"  Letters: {portal_input.letters_items} items, {portal_input.avg_letter_weight_grams}g avg")
-        if portal_input.has_flats:
-            log_msg(f"  Flats: {portal_input.flats_items} items, {portal_input.avg_flat_weight_grams}g avg")
+        for description in portal_input.describe():
+            log_msg(f"  {description}")
         log_msg(f"  Output folder: {output_dir}")
 
         # Step 1: Launch Edge with remote debugging
@@ -2401,6 +2394,10 @@ Features:
             self.root.after(0, self.log, msg)
 
         try:
+            log_msg(f"  PO Number: {portal_input.po_number}")
+            for description in portal_input.describe():
+                log_msg(f"  {description}")
+
             # Launch Edge
             log_msg("Launching Edge for Royal Mail...")
             success, msg = launch_edge_for_royalmail(log_callback=log_msg)
