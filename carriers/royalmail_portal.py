@@ -409,6 +409,58 @@ def launch_edge_for_royalmail(log_callback=None) -> tuple[bool, str]:
     return False, "Edge launched but remote debugging not responding. Try closing Edge manually and retry."
 
 
+def _open_tab_urls(browser) -> List[str]:
+    """URLs of every tab in the browser; unreadable tabs are skipped."""
+    urls = []
+    for ctx in browser.contexts:
+        for page in ctx.pages:
+            try:
+                urls.append(page.url)
+            except Exception:
+                continue
+    return urls
+
+
+async def _find_royalmail_page(browser, log, wait_seconds=15, poll_seconds=1):
+    """
+    Return a royalmail.com tab to log in on, opening one if none arrives.
+
+    Edge is launched with the login URL, but the debug port can answer before
+    that tab exists or has navigated — and now that every run starts a fresh
+    Edge, a slow machine hits that window every time. Edge may also show its
+    own pages first (sync confirmation, session restore). So wait for the
+    tab, and if it never appears, open the login page ourselves.
+
+    Returns (page, error); the error lists the tabs seen, so a failure on a
+    machine we cannot watch still says what Edge was showing.
+    """
+    deadline = time.time() + wait_seconds
+    while True:
+        for ctx in browser.contexts:
+            for page in ctx.pages:
+                try:
+                    if 'royalmail.com' in page.url.lower():
+                        return page, ""
+                except Exception:
+                    continue
+        if time.time() >= deadline:
+            break
+        await asyncio.sleep(poll_seconds)
+
+    seen = ', '.join(_open_tab_urls(browser)) or '(no tabs)'
+    log(f"    No Royal Mail tab in Edge (tabs: {seen}); opening the login page")
+
+    if not browser.contexts:
+        return None, "Could not find Royal Mail page in Edge — Edge has no browser window open"
+
+    try:
+        page = await browser.contexts[0].new_page()
+        await page.goto(OBA_LOGIN_URL, wait_until='domcontentloaded', timeout=30000)
+        return page, ""
+    except Exception as e:
+        return None, f"Could not find Royal Mail page in Edge (tabs: {seen}); opening it failed: {e}"
+
+
 async def _auto_login_to_oba(browser, log, timeout_ms=30000):
     """
     Automatically log in to Royal Mail OBA via the royalmail.com login page.
@@ -420,18 +472,9 @@ async def _auto_login_to_oba(browser, log, timeout_ms=30000):
     if not creds.is_valid():
         return None, "Royal Mail credentials not configured. Set ROYALMAIL_EMAIL and ROYALMAIL_PASSWORD in .env"
 
-    # Find the login page (Edge was launched with the login URL)
-    login_page = None
-    for ctx in browser.contexts:
-        for page in ctx.pages:
-            if 'royalmail.com' in page.url.lower():
-                login_page = page
-                break
-        if login_page:
-            break
-
+    login_page, find_error = await _find_royalmail_page(browser, log)
     if not login_page:
-        return None, "Could not find Royal Mail page in Edge"
+        return None, find_error
 
     log("  Automating login...")
 

@@ -9,9 +9,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from carriers.royalmail_countries import CountryLine
 from carriers.royalmail_portal import (
+    OBA_LOGIN_URL,
     PRODUCT_CODES,
     RoyalMailPortalInput,
     _create_order,
+    _find_royalmail_page,
     match_option_value,
 )
 
@@ -212,6 +214,88 @@ class UnfileableLineTests(unittest.TestCase):
         ))
         self.assertFalse(success)
         self.assertIn('No Royal Mail volumes', message)
+
+
+
+class FakePage:
+    def __init__(self, url):
+        self.url = url
+
+    async def goto(self, url, **kwargs):
+        self.url = url
+
+
+class FakeContext:
+    """
+    A browser context whose tab list can change between polls: each read of
+    `pages` returns the next snapshot, then keeps returning the last one.
+    """
+
+    def __init__(self, *snapshots, can_open=True):
+        self.snapshots = [list(s) for s in snapshots] or [[]]
+        self.can_open = can_open
+        self.opened = []
+
+    @property
+    def pages(self):
+        if len(self.snapshots) > 1:
+            return self.snapshots.pop(0)
+        return self.snapshots[0] + self.opened
+
+    async def new_page(self):
+        if not self.can_open:
+            raise RuntimeError('cannot open a tab')
+        page = FakePage('about:blank')
+        self.opened.append(page)
+        return page
+
+
+class FakeBrowser:
+    def __init__(self, *contexts):
+        self.contexts = list(contexts)
+
+
+class FindRoyalMailPageTests(unittest.TestCase):
+    """
+    Every run now starts a fresh Edge, and the tab Edge was told to open is
+    not guaranteed to be there the moment the debug port answers. The lookup
+    waits for it, and opens the login page itself rather than giving up.
+    """
+
+    def find(self, browser):
+        return asyncio.run(
+            _find_royalmail_page(browser, lambda msg: None, wait_seconds=1, poll_seconds=0)
+        )
+
+    def test_an_open_royal_mail_tab_is_used(self):
+        tab = FakePage('https://www.royalmail.com/login')
+        page, error = self.find(FakeBrowser(FakeContext([FakePage('edge://newtab/'), tab])))
+        self.assertIs(page, tab)
+        self.assertEqual(error, '')
+
+    def test_a_tab_that_navigates_there_after_connecting_is_used(self):
+        tab = FakePage('https://www.royalmail.com/login')
+        context = FakeContext([FakePage('about:blank')], [FakePage('about:blank')], [tab])
+        page, error = self.find(FakeBrowser(context))
+        self.assertIs(page, tab)
+
+    def test_the_login_page_is_opened_when_no_tab_ever_arrives(self):
+        context = FakeContext([FakePage('edge://sync-confirmation-dialog/')])
+        page, error = self.find(FakeBrowser(context))
+        self.assertIsNotNone(page)
+        self.assertEqual(page.url, OBA_LOGIN_URL)
+        self.assertEqual(error, '')
+
+    def test_failure_to_open_a_tab_reports_the_tabs_that_were_seen(self):
+        context = FakeContext([FakePage('edge://sync-confirmation-dialog/')], can_open=False)
+        page, error = self.find(FakeBrowser(context))
+        self.assertIsNone(page)
+        self.assertIn('edge://sync-confirmation-dialog/', error)
+
+    def test_a_browser_with_no_contexts_is_reported_rather_than_crashing(self):
+        page, error = self.find(FakeBrowser())
+        self.assertIsNone(page)
+        self.assertIn('Royal Mail', error)
 
 
 if __name__ == '__main__':
