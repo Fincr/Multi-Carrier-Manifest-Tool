@@ -1,5 +1,7 @@
 # Multi-Carrier Manifest Tool
 
+> **Retired (Oct 2026):** this tool is no longer in use.
+
 Automated population of carrier manifests from internal carrier sheets, with integrated portal automation, printing, and file management.
 
 **Version:** 1.4.5

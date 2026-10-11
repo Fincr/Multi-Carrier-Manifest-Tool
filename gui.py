@@ -2619,6 +2619,9 @@ Features:
 def main():
     root = tk.Tk()
     root.withdraw()
+    messagebox.showinfo("Retired", "The Multi-Carrier Manifest Tool has been retired and is no longer in use.")
+    root.destroy()
+    return
     
     # Try to set a nicer theme
     try:
